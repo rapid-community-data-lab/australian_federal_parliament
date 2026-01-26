@@ -34,6 +34,8 @@ class TranscriptContext:
     debate_info: tuple = dc.field(default_factory=tuple)
     enclosing_tags: set = dc.field(default_factory=set)
     speaker: dict = dc.field(default_factory=dict)
+    fragment_number: int = 0
+    fragment_type: str = None
 
 
 def process_debate_info(element):
@@ -95,8 +97,8 @@ def process_xml_transcript(transcript_key, xml_str):
 
     # Note we're using a while loop and a queue to avoid Python limitations with
     # recursion. We still process in depth first order though so we can assign sensible
-    # sequence numbers.
-    sequence_no = 0
+    # sequence numbers to the output processed items.
+
     to_process = [(context, root)]
     processed = []
     speaker = {}
@@ -166,14 +168,21 @@ def process_xml_transcript(transcript_key, xml_str):
 
             continue
 
-        # Pass through - the set of parent tags for this particular context that aren't
-        # otherwise handled. This is so we can defer processing a bit further down the
-        # track as most of these might only need a present/absent flag to indicate
-        # important structure.
-        else:
-            context = dc.replace(
-                context, enclosing_tags=context.enclosing_tags | set([tag])
-            )
+        # There's mostly no title associated with these, but they are still distinct
+        # procedural units. Notes:
+        #   - Questions and answers are usually part of the same fragment
+        #   - petitions rarely have embedded speeches - in some cases this will generate
+        #     a fragment_number that isn't used.
+        elif tag in ("speaker", "motionnospeech", "petition", "question", "answer"):
+            context.fragment_number += 1
+            context.fragment_type = tag
+
+        # Pass through - the set of parent tags for this particular context. This is so
+        # we can defer processing a bit further down the track as most of these might
+        # only need a present/absent flag to indicate important structure.
+        context = dc.replace(
+            context, enclosing_tags=context.enclosing_tags | set([tag])
+        )
 
         # Prep children for processing - note we append in reverse order so that the
         # depth first order is preserved.
@@ -203,10 +212,19 @@ def insert_processed_xml_transcript_detail(
     for sequence_no, (context, paragraph_text) in enumerate(paragraphs):
 
         speaker_id = context.speaker.get("name.id", None)
+        fragment_number = context.fragment_number
+        fragment_type = context.fragment_type
 
         processed_db.execute(
-            "INSERT into paragraph values(?, ?, ?, ?)",
-            (session_id, sequence_no, speaker_id, paragraph_text),
+            "INSERT into paragraph values(?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                sequence_no,
+                speaker_id,
+                fragment_number,
+                fragment_type,
+                paragraph_text,
+            ),
         )
 
         processed_db.executemany(
@@ -384,11 +402,41 @@ if __name__ == "__main__":
     transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
     processed_db = sqlite3.connect("transcripts_processed.db", isolation_level=None)
 
-    processed_db.executescript(
-        """
-        DROP table if exists paragraph;
-        DROP table if exists session;
-        DROP table if exists paragraph_enclosing_context;
+    processed_db.execute("attach ? as collected", ["transcripts_progress.db"])
+
+    processed_db.executescript("""
+        DROP table if exists main.paragraph;
+        DROP table if exists main.session;
+        DROP table if exists main.paragraph_enclosing_context;
+        DROP table if exists main.paragraph_enclosed_context;
+        DROP table if exists main.parliamentarian;
+        DROP table if exists main.party;
+        DROP table if exists main.party_member;
+
+        -- Prepare tables for parliamentary handbook data
+        CREATE table main.parliamentarian (
+            phid primary key,
+            display_name text,
+            gender,
+            date_of_birth,
+            date_of_death
+        );
+        CREATE table main.party (
+            party_id integer primary key,
+            name text
+        );
+        CREATE table main.party_member (
+            party_id integer references party,
+            phid references parliamentarian,
+            start_date,
+            end_date,
+            primary key (party_id, phid, start_date)
+        );
+
+        -- Copy parliamentary handbook tables
+        insert into main.parliamentarian select * from collected.parliamentarian;
+        insert into main.party select * from collected.party;
+        insert into main.party_member select * from collected.party_member;
 
         create table session(
             session_id integer primary key,
@@ -408,6 +456,8 @@ if __name__ == "__main__":
             sequence_number,
             speaker_id,
             -- debate_id,
+            fragment_number,
+            fragment_type,
             -- procedural_context,
             -- speaker,
             -- last_speaker,
@@ -423,13 +473,19 @@ if __name__ == "__main__":
             foreign key (session_id, sequence_number) references paragraph
         );
 
+        create table paragraph_enclosed_context(
+            session_id references session,
+            sequence_number,
+            tag,
+            primary key (session_id, sequence_number, tag),
+            foreign key (session_id, sequence_number) references paragraph
+        );
+
         pragma journal_mode=WAL;
-        """
-    )
+        """)
 
     ## Process the tag counts for each transcript
-    xml_transcripts = transcript_db.execute(
-        """
+    xml_transcripts = transcript_db.execute("""
         SELECT url, transcript_markup_type, transcript_markup
         from hansard_transcript
         where retrieved is not null
@@ -437,8 +493,7 @@ if __name__ == "__main__":
             -- and transcript_markup_type = 'sgml'
         order by url
         -- limit 100
-        """
-    )
+        """)
 
     processed_db.execute("begin")
 
