@@ -103,11 +103,23 @@ def process_xml_transcript(transcript_key, xml_str):
     processed = []
     speaker = {}
 
+    fragment_number = 0
+    fragment_type = None
+
     while to_process:
 
         context, element = to_process.pop()
 
         tag = element.tag
+
+        # There's mostly no title associated with these, but they are still distinct
+        # procedural units. Notes:
+        #   - Questions and answers are usually part of the same fragment
+        #   - petitions rarely have embedded speeches - in some cases this will generate
+        #     a fragment_number that isn't used.
+        if tag in ("speech", "motionnospeech", "petition", "question", "answer"):
+            fragment_number += 1
+            fragment_type = tag
 
         # Extract debate info if present.
         new_debate_info = process_debate_info(element)
@@ -162,20 +174,17 @@ def process_xml_transcript(transcript_key, xml_str):
             # Always attach the current speaker reference - this means that runs of
             # paragraphs without otherwise attributing the speaker be assigned
             # implicitly to the same speaker.
-            context = dc.replace(context, speaker=speaker)
+            context = dc.replace(
+                context,
+                speaker=speaker,
+                fragment_number=fragment_number,
+                fragment_type=fragment_type,
+            )
 
             processed.append((context, paragraph_text))
 
+            # Continue as the leaf nodes are the p/para elements.
             continue
-
-        # There's mostly no title associated with these, but they are still distinct
-        # procedural units. Notes:
-        #   - Questions and answers are usually part of the same fragment
-        #   - petitions rarely have embedded speeches - in some cases this will generate
-        #     a fragment_number that isn't used.
-        elif tag in ("speaker", "motionnospeech", "petition", "question", "answer"):
-            context.fragment_number += 1
-            context.fragment_type = tag
 
         # Pass through - the set of parent tags for this particular context. This is so
         # we can defer processing a bit further down the track as most of these might
@@ -404,7 +413,8 @@ if __name__ == "__main__":
 
     processed_db.execute("attach ? as collected", ["transcripts_progress.db"])
 
-    processed_db.executescript("""
+    processed_db.executescript(
+        """
         DROP table if exists main.paragraph;
         DROP table if exists main.session;
         DROP table if exists main.paragraph_enclosing_context;
@@ -482,10 +492,12 @@ if __name__ == "__main__":
         );
 
         pragma journal_mode=WAL;
-        """)
+        """
+    )
 
     ## Process the tag counts for each transcript
-    xml_transcripts = transcript_db.execute("""
+    xml_transcripts = transcript_db.execute(
+        """
         SELECT url, transcript_markup_type, transcript_markup
         from hansard_transcript
         where retrieved is not null
@@ -493,7 +505,8 @@ if __name__ == "__main__":
             -- and transcript_markup_type = 'sgml'
         order by url
         -- limit 100
-        """)
+        """
+    )
 
     processed_db.execute("begin")
 
@@ -552,4 +565,4 @@ if __name__ == "__main__":
 
     processed_db.execute("commit")
 
-    print(speaker_keys)
+    print("Keys in the speaker info:", speaker_keys)
