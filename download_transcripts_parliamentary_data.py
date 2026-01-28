@@ -74,10 +74,15 @@ def init_and_refresh_sitemap(driver, db):
     # Sitemaps that have already been retrieved - the init function just makes sure
     # we've visited everything at least once, the update function handles the logic
     # of ensuring we have an up to date snapshot.
-    previously_retrieved = {row[0] for row in db.execute("""
+    previously_retrieved = {
+        row[0]
+        for row in db.execute(
+            """
             SELECT distinct source_sitemap
             from sitemap;
-            """)}
+            """
+        )
+    }
 
     # These reference points are set on first init, and we retrieve sitemaps in
     # descending order of freshness of URLs - this gives a reliable point for
@@ -168,11 +173,13 @@ def identify_transcripts_to_retrieve(db):
     """
 
     db.execute("begin")
-    possible_transcripts = db.execute("""
+    possible_transcripts = db.execute(
+        """
         SELECT url, lastmod
         from sitemap
         where instr(url, 'hansard')
-        """)
+        """
+    )
 
     pages = collections.Counter()
 
@@ -223,12 +230,17 @@ def retrieve_transcripts(driver, db, download_dir):
 
     """
 
-    to_retrieve = list(r[0] for r in db.execute("""
+    to_retrieve = list(
+        r[0]
+        for r in db.execute(
+            """
             SELECT url 
             from hansard_transcript
             where retrieved < lastmod
             order by lastmod
-            """))
+            """
+        )
+    )
 
     total_to_retrieve = len(to_retrieve)
 
@@ -417,7 +429,8 @@ def retrieve_parliamentarians(db):
     parliamentarians = response.json()["value"]
 
     db.execute("DROP table if exists parliamentarian")
-    db.execute("""
+    db.execute(
+        """
         CREATE table parliamentarian (
             phid primary key,
             display_name text,
@@ -425,7 +438,8 @@ def retrieve_parliamentarians(db):
             date_of_birth,
             date_of_death
         )
-        """)
+        """
+    )
 
     db.executemany(
         """
@@ -519,15 +533,15 @@ def retrieve_electorates(db):
 
 if __name__ == "__main__":
 
+    import os
     import sys
 
     args = sys.argv[1:]
 
-    print(args)
-
     db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
 
-    db.executescript("""
+    db.executescript(
+        """
         CREATE table if not exists sitemap(
             url primary key,
             source_sitemap,
@@ -551,7 +565,8 @@ if __name__ == "__main__":
         );
 
         pragma journal_mode=WAL;
-        """)
+        """
+    )
 
     if "--skip-transcripts" not in args:
         with tempfile.TemporaryDirectory(dir=".") as tempdir:
@@ -561,7 +576,15 @@ if __name__ == "__main__":
             # application/content-type headers that lead to strange behaviour.
             options.set_preference("browser.download.dir", tempdir)
             options.set_preference("browser.download.folderList", 2)
-            driver = webdriver.Firefox(options=options)
+
+            # Escape hatch via environment variables if geckodriver is installed
+            # somewhere interesting, such as a snap on linux.
+            if geckodriver_path := os.environ.get("WEBDRIVER_GECKO_DRIVER", None):
+                service = webdriver.FirefoxService(geckodriver_path)
+            else:
+                service = webdriver.FirefoxService()
+
+            driver = webdriver.Firefox(options=options, service=service)
 
             # This is a simple site - just rely on a basic page load timeout.
             driver.set_page_load_timeout(10)
