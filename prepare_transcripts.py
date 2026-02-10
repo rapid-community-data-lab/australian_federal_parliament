@@ -10,9 +10,6 @@ certain kinds of information difficult to extract.
 
 # /// script
 # requires-python = ">=3.12"
-# dependencies = [
-#   "lxml"
-# ]
 # ///
 
 import collections
@@ -23,8 +20,6 @@ import itertools
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
-
-from lxml import etree
 
 
 @dc.dataclass
@@ -225,7 +220,7 @@ def insert_processed_xml_transcript_detail(
         fragment_type = context.fragment_type
 
         processed_db.execute(
-            "INSERT into paragraph values(?, ?, ?, ?, ?, ?)",
+            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 sequence_no,
@@ -409,44 +404,14 @@ ignore_transcripts = set(
 if __name__ == "__main__":
 
     transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
-    processed_db = sqlite3.connect("transcripts_processed.db", isolation_level=None)
+    processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
 
-    processed_db.execute("attach ? as collected", ["transcripts_progress.db"])
+    processed_db.executescript("""
+        DROP table if exists paragraph;
+        DROP table if exists session;
+        DROP table if exists paragraph_enclosing_context;
+        DROP table if exists paragraph_enclosed_context;
 
-    processed_db.executescript(
-        """
-        DROP table if exists main.paragraph;
-        DROP table if exists main.session;
-        DROP table if exists main.paragraph_enclosing_context;
-        DROP table if exists main.paragraph_enclosed_context;
-        DROP table if exists main.parliamentarian;
-        DROP table if exists main.party;
-        DROP table if exists main.party_member;
-
-        -- Prepare tables for parliamentary handbook data
-        CREATE table main.parliamentarian (
-            phid primary key,
-            display_name text,
-            gender,
-            date_of_birth,
-            date_of_death
-        );
-        CREATE table main.party (
-            party_id integer primary key,
-            name text
-        );
-        CREATE table main.party_member (
-            party_id integer references party,
-            phid references parliamentarian,
-            start_date,
-            end_date,
-            primary key (party_id, phid, start_date)
-        );
-
-        -- Copy parliamentary handbook tables
-        insert into main.parliamentarian select * from collected.parliamentarian;
-        insert into main.party select * from collected.party;
-        insert into main.party_member select * from collected.party_member;
 
         create table session(
             session_id integer primary key,
@@ -462,17 +427,15 @@ if __name__ == "__main__":
         -- );
 
         create table paragraph(
+            para_id integer primary key,
             session_id references session,
             sequence_number,
             speaker_id,
             -- debate_id,
             fragment_number,
             fragment_type,
-            -- procedural_context,
-            -- speaker,
-            -- last_speaker,
             paragraph_text,
-            primary key (session_id, sequence_number)
+            unique(session_id, sequence_number)
         );
 
         create table paragraph_enclosing_context(
@@ -492,12 +455,10 @@ if __name__ == "__main__":
         );
 
         pragma journal_mode=WAL;
-        """
-    )
+        """)
 
     ## Process the tag counts for each transcript
-    xml_transcripts = transcript_db.execute(
-        """
+    transcripts = transcript_db.execute("""
         SELECT url, transcript_markup_type, transcript_markup
         from hansard_transcript
         where retrieved is not null
@@ -505,8 +466,7 @@ if __name__ == "__main__":
             -- and transcript_markup_type = 'sgml'
         order by url
         -- limit 100
-        """
-    )
+        """)
 
     processed_db.execute("begin")
 
@@ -521,7 +481,7 @@ if __name__ == "__main__":
 
         speaker_keys = set()
 
-        for url, transcript_type, transcript in xml_transcripts:
+        for url, transcript_type, transcript in transcripts:
 
             if url in ignore_transcripts:
                 continue

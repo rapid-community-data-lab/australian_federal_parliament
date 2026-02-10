@@ -8,7 +8,6 @@ taking care to go slowly, and only retrieve things that have changed.
 # requires-python = ">=3.12"
 # dependencies = [
 #   "selenium",
-#   "requests"
 # ]
 # ///
 
@@ -22,8 +21,6 @@ import traceback
 import xml.etree.ElementTree as ET
 
 from urllib.parse import urlparse, parse_qs
-
-import requests
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
@@ -74,15 +71,10 @@ def init_and_refresh_sitemap(driver, db):
     # Sitemaps that have already been retrieved - the init function just makes sure
     # we've visited everything at least once, the update function handles the logic
     # of ensuring we have an up to date snapshot.
-    previously_retrieved = {
-        row[0]
-        for row in db.execute(
-            """
+    previously_retrieved = {row[0] for row in db.execute("""
             SELECT distinct source_sitemap
             from sitemap;
-            """
-        )
-    }
+            """)}
 
     # These reference points are set on first init, and we retrieve sitemaps in
     # descending order of freshness of URLs - this gives a reliable point for
@@ -173,13 +165,11 @@ def identify_transcripts_to_retrieve(db):
     """
 
     db.execute("begin")
-    possible_transcripts = db.execute(
-        """
+    possible_transcripts = db.execute("""
         SELECT url, lastmod
         from sitemap
         where instr(url, 'hansard')
-        """
-    )
+        """)
 
     pages = collections.Counter()
 
@@ -230,17 +220,12 @@ def retrieve_transcripts(driver, db, download_dir):
 
     """
 
-    to_retrieve = list(
-        r[0]
-        for r in db.execute(
-            """
+    to_retrieve = list(r[0] for r in db.execute("""
             SELECT url 
             from hansard_transcript
             where retrieved < lastmod
             order by lastmod
-            """
-        )
-    )
+            """))
 
     total_to_retrieve = len(to_retrieve)
 
@@ -414,123 +399,6 @@ def retrieve_transcripts(driver, db, download_dir):
                 continue
 
 
-def retrieve_parliamentarians(db):
-
-    handbook_api = (
-        "https://handbookapi.aph.gov.au/api/individuals?"
-        "$orderby=FamilyName,GivenName"
-        "&$select=PHID,DisplayName,gender,dateOfBirth,dateOfDeath"
-    )
-
-    response = requests.get(handbook_api)
-
-    response.raise_for_status()
-
-    parliamentarians = response.json()["value"]
-
-    db.execute("DROP table if exists parliamentarian")
-    db.execute(
-        """
-        CREATE table parliamentarian (
-            phid primary key,
-            display_name text,
-            gender,
-            date_of_birth,
-            date_of_death
-        )
-        """
-    )
-
-    db.executemany(
-        """
-        INSERT into parliamentarian values 
-            (:PHID, :DisplayName, :Gender, :DateOfBirth, :DateOfDeath)
-
-        """,
-        parliamentarians,
-    )
-
-
-def retrieve_party_records(db):
-    """Retrieve parties and membership information from the Parliamentary Handbook."""
-
-    db.execute("DROP table if exists party")
-    db.execute(
-        """
-        CREATE table party (
-            party_id integer primary key,
-            name text
-        )
-        """,
-    )
-    db.execute("DROP table if exists party_member")
-    db.execute(
-        """
-        CREATE table party_member (
-            party_id integer references party,
-            phid references parliamentarian,
-            start_date,
-            end_date,
-            primary key (party_id, phid, start_date)
-        )
-        """,
-    )
-
-    all_parties = requests.get("https://handbookapi.aph.gov.au/api/partiesdata/parties")
-
-    all_parties.raise_for_status()
-
-    parties = all_parties.json()
-
-    db.executemany("INSERT into party values (:PartyID, :PrimaryName)", parties)
-
-    detailed_url = "https://handbookapi.aph.gov.au/api/partiesdata/partydetailed"
-    for i, party in enumerate(parties):
-
-        party_id = party["PartyID"]
-
-        print(f"Retrieving party {i+1}/{len(parties)}:", party["PrimaryName"])
-
-        data = {"partyID": party_id}
-
-        party_detailed = requests.get(detailed_url, params=data)
-
-        party_detailed.raise_for_status()
-
-        party_members = party_detailed.json()["PartyMembers"]
-
-        for member in party_members:
-            row_header = {"party_id": party_id, "phid": member["PHID"]}
-
-            # A person can have multiple records in a party, representing: losing and
-            # regaining their seat, leaving/joining a party, changing from the house to
-            # the senate etc.
-
-            party_records = member["PartyRecords"]
-
-            db.executemany(
-                """
-                INSERT into party_member values(:party_id, :phid, :StartDate, :EndDate)
-                """,
-                (
-                    dict(**row_header, **member_record)
-                    for member_record in party_records
-                ),
-            )
-
-        time.sleep(15)
-
-
-def retrieve_ministers(db):
-    """Retrieve ministerial appointments from the Parliamentary Handbook."""
-    pass
-
-
-def retrieve_electorates(db):
-    """Retrieve electorate information from the Parliamentary Handbook."""
-    pass
-
-
 if __name__ == "__main__":
 
     import os
@@ -540,8 +408,7 @@ if __name__ == "__main__":
 
     db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
 
-    db.executescript(
-        """
+    db.executescript("""
         CREATE table if not exists sitemap(
             url primary key,
             source_sitemap,
@@ -565,8 +432,7 @@ if __name__ == "__main__":
         );
 
         pragma journal_mode=WAL;
-        """
-    )
+        """)
 
     if "--skip-transcripts" not in args:
         with tempfile.TemporaryDirectory(dir=".") as tempdir:
