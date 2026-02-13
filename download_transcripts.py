@@ -2,6 +2,32 @@
 Download a complete version of the transcripts from Australian Federal Parliament,
 taking care to go slowly, and only retrieve things that have changed.
 
+Run as:
+
+python download_transcripts.py
+
+
+Note this relies on firefox and geckodriver installed and findable by selenium: if you
+have firefox installed via snap you will need to use the WEBDRIVER_GECKO_DRIVER
+environment variable to point it at the right location.
+
+WEBDRIVER_GECKO_DRIVER=/snap/bin/geckodriver python download_transcripts.py
+
+
+This script aims to only collect changed transcripts by using the parlinfo sitemap and
+dates of update of different materials. Tracking state for what needs to be downloaded
+and when items were retrieved is kept in an SQLite database.
+
+The sync follows this process:
+
+1. Sync the sitemap from parlinfo with a local version.
+    - The sitemap is split over multiple files and appears to be updated daily.
+    - The sitemap is in reverse chronological order, so chunks of the sitemap are
+      processed most recent changes first
+    - There's an overlap period for retrieving changes, just to make sure we don't leave
+      any gaps
+    - The sitemap probably needs to be refreshed completely
+
 """
 
 # /// script
@@ -117,16 +143,18 @@ def init_and_refresh_sitemap(driver, db):
 
     print("Sitemap initialised.")
 
-    last_refresh_time = list(
-        db.execute("SELECT value from process_data where key = 'last_refresh_time'")
-    )[0][0]
+    # Last partial refresh
+    last_refresh_time = datetime.datetime.fromisoformat(
+        list(
+            db.execute("SELECT value from process_data where key = 'last_refresh_time'")
+        )[0][0]
+    )
 
+    # Usual case - partial refresh
     # lastmod provided by the sitemap is only accurate up to the date - we'll use a
     # reference date of a few days before that to ensure that we have everything.
     refresh_delta = datetime.timedelta(days=3)
-    reference_refresh = (
-        datetime.datetime.fromisoformat(last_refresh_time) - refresh_delta
-    )
+    reference_refresh = last_refresh_time - refresh_delta
     reference_date = reference_refresh.date().isoformat()
 
     print(f"Refreshing sitemap until {reference_date}.")
@@ -434,43 +462,36 @@ if __name__ == "__main__":
         pragma journal_mode=WAL;
         """)
 
-    if "--skip-transcripts" not in args:
-        with tempfile.TemporaryDirectory(dir=".") as tempdir:
-            options = webdriver.FirefoxOptions()
+    if "--full-refresh-sitemap" in args:
+        db.execute("DELETE from sitemap")
+        db.execute("DELETE from process_data where key = 'last_full_refresh_time")
 
-            # The download options are necessary to handle the SGML files with mixed
-            # application/content-type headers that lead to strange behaviour.
-            options.set_preference("browser.download.dir", tempdir)
-            options.set_preference("browser.download.folderList", 2)
+    with tempfile.TemporaryDirectory(dir=".") as tempdir:
+        options = webdriver.FirefoxOptions()
 
-            # Escape hatch via environment variables if geckodriver is installed
-            # somewhere interesting, such as a snap on linux.
-            if geckodriver_path := os.environ.get("WEBDRIVER_GECKO_DRIVER", None):
-                service = webdriver.FirefoxService(geckodriver_path)
-            else:
-                service = webdriver.FirefoxService()
+        # The download options are necessary to handle the SGML files with mixed
+        # application/content-type headers that lead to strange behaviour.
+        options.set_preference("browser.download.dir", tempdir)
+        options.set_preference("browser.download.folderList", 2)
 
-            driver = webdriver.Firefox(options=options, service=service)
+        # Escape hatch via environment variables if geckodriver is installed
+        # somewhere interesting, such as a snap on linux.
+        if geckodriver_path := os.environ.get("WEBDRIVER_GECKO_DRIVER", None):
+            service = webdriver.FirefoxService(geckodriver_path)
+        else:
+            service = webdriver.FirefoxService()
 
-            # This is a simple site - just rely on a basic page load timeout.
-            driver.set_page_load_timeout(10)
+        driver = webdriver.Firefox(options=options, service=service)
 
-            try:
+        # This is a simple site - just rely on a basic page load timeout.
+        driver.set_page_load_timeout(10)
 
-                # Check and update transcripts
-                init_and_refresh_sitemap(driver, db)
-                identify_transcripts_to_retrieve(db)
-                retrieve_transcripts(driver, db, tempdir)
+        try:
 
-            finally:
-                driver.quit()
+            # Check and update transcripts
+            init_and_refresh_sitemap(driver, db)
+            identify_transcripts_to_retrieve(db)
+            retrieve_transcripts(driver, db, tempdir)
 
-    if "--skip-handbook-data" not in args:
-        db.execute("begin")
-        # Update info from the parliamentary handbook
-        # retrieve_ministers(db)
-        # retrieve_electorates(db)
-        retrieve_parliamentarians(db)
-        retrieve_party_records(db)
-
-        db.execute("commit")
+        finally:
+            driver.quit()
