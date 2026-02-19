@@ -76,13 +76,13 @@ def process_debate_info(element):
 
 def remove_para_markup(paragraph):
     """
-    Extract plain text of paragraph, removing superfluous newlines.
+    Extract plain text of paragraph, and normalise whitespace/newlines.
 
     """
 
-    plain_text = "".join(paragraph.itertext()).strip()
+    extracted_text = "".join(paragraph.itertext())
 
-    return plain_text.replace("\n", "")
+    return " ".join(extracted_text.split())
 
 
 def process_xml_transcript(transcript_key, xml_str):
