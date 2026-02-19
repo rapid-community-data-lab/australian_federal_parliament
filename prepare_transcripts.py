@@ -74,6 +74,17 @@ def process_debate_info(element):
     return info
 
 
+def remove_para_markup(paragraph):
+    """
+    Extract plain text of paragraph, removing superfluous newlines.
+
+    """
+
+    plain_text = "".join(paragraph.itertext()).strip()
+
+    return plain_text.replace("\n", "")
+
+
 def process_xml_transcript(transcript_key, xml_str):
     """
     Extract text units from XML transcripts, with sufficient information about context.
@@ -152,7 +163,7 @@ def process_xml_transcript(transcript_key, xml_str):
         elif tag in ("p", "para"):
 
             # TODO: handle procedural stuff, like speaker names embedded in the text.
-            paragraph_text = "".join(element.itertext()).strip()
+            paragraph_text = remove_para_markup(element)
 
             # For new style paragraph tags, look for the speaker ID in the href.
             # TODO: for p tags, the important info is contained in the classes applied
@@ -198,7 +209,7 @@ def process_xml_transcript(transcript_key, xml_str):
 
 
 def insert_processed_xml_transcript_detail(
-    processed_db, session_id, url, session_info, paragraphs
+    processed_db, session_id, debate_id, url, session_info, paragraphs
 ):
     """
     Insert final processed data into the database.
@@ -211,20 +222,41 @@ def insert_processed_xml_transcript_detail(
         (session_id, url, session_info["date"], session_info["chamber"]),
     )
 
-    speaker_keys = set()
+    # speaker_keys = set()
+
+    last_debate_title = None
+    debate_no = 1
 
     for sequence_no, (context, paragraph_text) in enumerate(paragraphs):
+
+        debate_title = "\n".join(c.get("title", "") or "" for c in context.debate_info)
+
+        # Create a new debate sequence whenever the title changes.
+        if debate_title is not None and debate_title != last_debate_title:
+            processed_db.execute(
+                """
+                INSERT into debate values(?, ?, ?, ?)
+
+                """,
+                (debate_id, session_id, debate_no, debate_title),
+            )
+
+            debate_no += 1
+            debate_id += 1
+
+            last_debate_title = debate_title
 
         speaker_id = context.speaker.get("name.id", None)
         fragment_number = context.fragment_number
         fragment_type = context.fragment_type
 
         processed_db.execute(
-            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?)",
+            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 sequence_no,
                 speaker_id,
+                debate_id,
                 fragment_number,
                 fragment_type,
                 paragraph_text,
@@ -236,9 +268,9 @@ def insert_processed_xml_transcript_detail(
             ((session_id, sequence_no, tag) for tag in context.enclosing_tags),
         )
 
-        speaker_keys |= set(context.speaker.keys())
+        # speaker_keys |= set(context.speaker.keys())
 
-    return speaker_keys
+    return debate_id
 
 
 remove_tags = (
@@ -409,6 +441,7 @@ if __name__ == "__main__":
     processed_db.executescript("""
         DROP table if exists paragraph;
         DROP table if exists session;
+        DROP table if exists debate;
         DROP table if exists paragraph_enclosing_context;
         DROP table if exists paragraph_enclosed_context;
 
@@ -420,18 +453,20 @@ if __name__ == "__main__":
             chamber text
         );
 
-        -- create table debate(
-        --     debate_id integer primary key,
-        --     session_id,
-        --     title
-        -- );
+        create table debate(
+            debate_id integer primary key,
+            session_id integer references session,
+            debate_no integer,
+            title,
+            unique(session_id, debate_no)
+        );
 
         create table paragraph(
             para_id integer primary key,
             session_id references session,
             sequence_number,
             speaker_id,
-            -- debate_id,
+            debate_id,
             fragment_number,
             fragment_type,
             paragraph_text,
@@ -465,7 +500,6 @@ if __name__ == "__main__":
             and transcript_markup is not null
             -- and transcript_markup_type = 'sgml'
         order by url
-        -- limit 100
         """)
 
     processed_db.execute("begin")
@@ -476,8 +510,8 @@ if __name__ == "__main__":
 
         # We generate session_ids and debate_ids sequentially as surrogate keys.
         # Session IDs map directly to one transcript - debate ids are more complex.
-        session_id = 0
-        debate_id = 0
+        session_id = 1
+        debate_id = 1
 
         speaker_keys = set()
 
@@ -505,11 +539,14 @@ if __name__ == "__main__":
                     url, transcript_type, session_info, paragraphs = task.result()
 
                     if transcript_type == "xml":
-                        new_speaker_keys = insert_processed_xml_transcript_detail(
-                            processed_db, session_id, url, session_info, paragraphs
+                        debate_id = insert_processed_xml_transcript_detail(
+                            processed_db,
+                            session_id,
+                            debate_id,
+                            url,
+                            session_info,
+                            paragraphs,
                         )
-
-                        speaker_keys |= new_speaker_keys
 
                     session_id += 1
 
@@ -518,11 +555,9 @@ if __name__ == "__main__":
         for task in cf.as_completed(tasks_in_flight):
             url, transcript_type, session_info, paragraphs = task.result()
             if transcript_type == "xml":
-                insert_processed_xml_transcript_detail(
-                    processed_db, session_id, url, session_info, paragraphs
+                debate_id = insert_processed_xml_transcript_detail(
+                    processed_db, session_id, debate_id, url, session_info, paragraphs
                 )
             session_id += 1
 
     processed_db.execute("commit")
-
-    print("Keys in the speaker info:", speaker_keys)
