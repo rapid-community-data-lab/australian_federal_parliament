@@ -225,6 +225,7 @@ def insert_processed_xml_transcript_detail(
     # speaker_keys = set()
 
     last_debate_title = None
+    next_debate = debate_id + 1
     debate_no = 1
 
     for sequence_no, (context, paragraph_text) in enumerate(paragraphs):
@@ -238,11 +239,12 @@ def insert_processed_xml_transcript_detail(
                 INSERT into debate values(?, ?, ?, ?)
 
                 """,
-                (debate_id, session_id, debate_no, debate_title),
+                (next_debate, session_id, debate_no, debate_title),
             )
 
+            debate_id = next_debate
+            next_debate += 1
             debate_no += 1
-            debate_id += 1
 
             last_debate_title = debate_title
 
@@ -270,7 +272,7 @@ def insert_processed_xml_transcript_detail(
 
         # speaker_keys |= set(context.speaker.keys())
 
-    return debate_id
+    return next_debate
 
 
 remove_tags = (
@@ -511,7 +513,7 @@ if __name__ == "__main__":
         # We generate session_ids and debate_ids sequentially as surrogate keys.
         # Session IDs map directly to one transcript - debate ids are more complex.
         session_id = 1
-        debate_id = 1
+        next_debate = 1
 
         speaker_keys = set()
 
@@ -539,10 +541,10 @@ if __name__ == "__main__":
                     url, transcript_type, session_info, paragraphs = task.result()
 
                     if transcript_type == "xml":
-                        debate_id = insert_processed_xml_transcript_detail(
+                        next_debate = insert_processed_xml_transcript_detail(
                             processed_db,
                             session_id,
-                            debate_id,
+                            next_debate,
                             url,
                             session_info,
                             paragraphs,
@@ -555,8 +557,8 @@ if __name__ == "__main__":
         for task in cf.as_completed(tasks_in_flight):
             url, transcript_type, session_info, paragraphs = task.result()
             if transcript_type == "xml":
-                debate_id = insert_processed_xml_transcript_detail(
-                    processed_db, session_id, debate_id, url, session_info, paragraphs
+                next_debate = insert_processed_xml_transcript_detail(
+                    processed_db, session_id, next_debate, url, session_info, paragraphs
                 )
             session_id += 1
 
