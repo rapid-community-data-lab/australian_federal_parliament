@@ -25,6 +25,7 @@ import datetime
 import sqlite3
 
 from openpyxl import Workbook
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 # Note - isolation_level=None won't work in future versions of Python (sometime after
 # 3.13), this should be using the autocommit=True value instead, but requires some
@@ -57,6 +58,7 @@ query = """
     select 
         session.date,
         session.chamber,
+        session.transcript_pdf_url as full_transcript_link,
         debate.title as debate_title,
         fragment_number as speech_number,
         parliamentarian.display_name,
@@ -90,10 +92,22 @@ header = [col[0] for col in results.description]
 worksheet.append(header)
 
 for row in results:
-    # Save date it as a proper datetime.
     row = list(row)
-    row[0] = datetime.date.fromisoformat(row[0])
+    # Save date as a proper datetime.
+    date = row[0]
+    row[0] = datetime.date.fromisoformat(date)
+
     worksheet.append(row)
+
+# Update transcript link to be a proper hyperlink
+all_rows = worksheet.rows
+next(all_rows)  # skip header
+
+for row in all_rows:
+    link = row[2].value
+
+    row[2].hyperlink = link
+    row[2].value = "Session Transcript"
 
 
 workbook.save("job_ready_graduates_speeches.xlsx")
