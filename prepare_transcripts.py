@@ -85,7 +85,7 @@ def remove_para_markup(paragraph):
     return " ".join(extracted_text.split())
 
 
-def process_xml_transcript(transcript_key, xml_str):
+def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
     """
     Extract text units from XML transcripts, with sufficient information about context.
     """
@@ -205,11 +205,17 @@ def process_xml_transcript(transcript_key, xml_str):
         for child in children:
             to_process.append((context, child))
 
-    return transcript_key, "xml", session_info, processed
+    return transcript_key, transcript_pdf_url, "xml", session_info, processed
 
 
 def insert_processed_xml_transcript_detail(
-    processed_db, session_id, debate_id, url, session_info, paragraphs
+    processed_db,
+    session_id,
+    debate_id,
+    url,
+    transcript_pdf_url,
+    session_info,
+    paragraphs,
 ):
     """
     Insert final processed data into the database.
@@ -218,8 +224,17 @@ def insert_processed_xml_transcript_detail(
 
     # Insert the session details.
     processed_db.execute(
-        "INSERT into session(session_id, url, date, chamber) values(?, ?, ?, ?)",
-        (session_id, url, session_info["date"], session_info["chamber"]),
+        """
+        INSERT into session(session_id, url, transcript_pdf_url, date, chamber) 
+            values(?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            url,
+            transcript_pdf_url,
+            session_info["date"],
+            session_info["chamber"],
+        ),
     )
 
     # speaker_keys = set()
@@ -249,6 +264,11 @@ def insert_processed_xml_transcript_detail(
             last_debate_title = debate_title
 
         speaker_id = context.speaker.get("name.id", None)
+        # parliamentary handbook is all uppercase, but transcripts occassionally use
+        # lower case, so normalise
+        if speaker_id is not None:
+            speaker_id = speaker_id.upper()
+
         fragment_number = context.fragment_number
         fragment_type = context.fragment_type
 
@@ -343,7 +363,7 @@ def chop_sgml_doctype(sgml_str):
     return start + sgml_str.partition(start)[2]
 
 
-def process_sgml_transcript(transcript_key, sgml_str):
+def process_sgml_transcript(transcript_key, transcript_pdf_url, sgml_str):
     """
     Extract text units from SGML transcripts, with sufficient information about context.
 
@@ -359,7 +379,7 @@ def process_sgml_transcript(transcript_key, sgml_str):
 
     root = ET.fromstring(transformed)
 
-    return transcript_key, "sgml", None, None
+    return transcript_key, transcript_pdf_url, "sgml", None, None
 
     # # Session information first - this is the basic information about the date, house,
     # # etc. and is the same across all of the elements in this transcript.
@@ -426,7 +446,8 @@ def process_sgml_transcript(transcript_key, sgml_str):
     # return transcript_key, "sgml", session_info, processed
 
 
-# The set of know bad transcripts - these are also cases that need further investigation
+# The set of known bad transcripts - these are also cases that need further
+# investigation
 ignore_transcripts = set(
     (
         # The XML transcript is not linked for this date - it ends up processed through
@@ -451,6 +472,7 @@ if __name__ == "__main__":
         create table session(
             session_id integer primary key,
             url unique,
+            transcript_pdf_url,
             date datetime,
             chamber text
         );
@@ -496,7 +518,11 @@ if __name__ == "__main__":
 
     ## Process the tag counts for each transcript
     transcripts = transcript_db.execute("""
-        SELECT url, transcript_markup_type, transcript_markup
+        SELECT 
+            url,
+            transcript_pdf_url, 
+            transcript_markup_type, 
+            transcript_markup
         from hansard_transcript
         where retrieved is not null
             and transcript_markup is not null
@@ -517,19 +543,23 @@ if __name__ == "__main__":
 
         speaker_keys = set()
 
-        for url, transcript_type, transcript in transcripts:
+        for url, transcript_pdf_url, transcript_type, transcript in transcripts:
 
             if url in ignore_transcripts:
                 continue
 
             if transcript_type == "xml":
                 tasks_in_flight.add(
-                    pool.submit(process_xml_transcript, url, transcript)
+                    pool.submit(
+                        process_xml_transcript, url, transcript_pdf_url, transcript
+                    )
                 )
 
             elif transcript_type == "sgml":
                 tasks_in_flight.add(
-                    pool.submit(process_sgml_transcript, url, transcript)
+                    pool.submit(
+                        process_sgml_transcript, url, transcript_pdf_url, transcript
+                    )
                 )
 
             if len(tasks_in_flight) > 500:
@@ -538,7 +568,13 @@ if __name__ == "__main__":
                 )
 
                 for task in completed:
-                    url, transcript_type, session_info, paragraphs = task.result()
+                    (
+                        url,
+                        transcript_pdf_url,
+                        transcript_type,
+                        session_info,
+                        paragraphs,
+                    ) = task.result()
 
                     if transcript_type == "xml":
                         next_debate = insert_processed_xml_transcript_detail(
@@ -546,6 +582,7 @@ if __name__ == "__main__":
                             session_id,
                             next_debate,
                             url,
+                            transcript_pdf_url,
                             session_info,
                             paragraphs,
                         )
@@ -555,10 +592,22 @@ if __name__ == "__main__":
                 print("Completed:", session_id)
 
         for task in cf.as_completed(tasks_in_flight):
-            url, transcript_type, session_info, paragraphs = task.result()
+            (
+                url,
+                transcript_pdf_url,
+                transcript_type,
+                session_info,
+                paragraphs,
+            ) = task.result()
             if transcript_type == "xml":
                 next_debate = insert_processed_xml_transcript_detail(
-                    processed_db, session_id, next_debate, url, session_info, paragraphs
+                    processed_db,
+                    session_id,
+                    next_debate,
+                    url,
+                    transcript_pdf_url,
+                    session_info,
+                    paragraphs,
                 )
             session_id += 1
 
