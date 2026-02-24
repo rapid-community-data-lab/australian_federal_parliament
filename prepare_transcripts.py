@@ -28,6 +28,10 @@ class TranscriptContext:
 
     debate_info: tuple = dc.field(default_factory=tuple)
     enclosing_tags: set = dc.field(default_factory=set)
+    enclosed_tags: set = dc.field(default_factory=set)
+    # This is needed for the newest transcripts, as some of the info is encoded here
+    # implicitly.
+    enclosed_classes: set = dc.field(default_factory=set)
     speaker: dict = dc.field(default_factory=dict)
     fragment_number: int = 0
     fragment_type: str = None
@@ -165,6 +169,14 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             # TODO: handle procedural stuff, like speaker names embedded in the text.
             paragraph_text = remove_para_markup(element)
 
+            enclosed_tags = set()
+            enclosed_classes = set()
+
+            for e in element.iter():
+                enclosed_tags.add(e.tag)
+                if "class" in e.attrib:
+                    enclosed_classes.add(e.attrib["class"])
+
             # For new style paragraph tags, look for the speaker ID in the href.
             # TODO: for p tags, the important info is contained in the classes applied
             # to different sections, not enclosing information like 'quote' tags etc.
@@ -185,6 +197,8 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 speaker=speaker,
                 fragment_number=fragment_number,
                 fragment_type=fragment_type,
+                enclosed_tags=enclosed_tags,
+                enclosed_classes=enclosed_classes,
             )
 
             processed.append((context, paragraph_text))
@@ -265,9 +279,10 @@ def insert_processed_xml_transcript_detail(
 
         speaker_id = context.speaker.get("name.id", None)
         # parliamentary handbook is all uppercase, but transcripts occassionally use
-        # lower case, so normalise
+        # lower case, so normalise.
+        # Also normalise leading/trailing whitespace while we're at it.
         if speaker_id is not None:
-            speaker_id = speaker_id.upper()
+            speaker_id = speaker_id.upper().strip()
 
         fragment_number = context.fragment_number
         fragment_type = context.fragment_type
@@ -285,9 +300,21 @@ def insert_processed_xml_transcript_detail(
             ),
         )
 
+        para_id = list(processed_db.execute("SELECT last_insert_rowid()"))[0][0]
+
         processed_db.executemany(
-            "INSERT into paragraph_enclosing_context values(?, ?, ?)",
-            ((session_id, sequence_no, tag) for tag in context.enclosing_tags),
+            "INSERT into paragraph_enclosing_tag values(?, ?)",
+            ((para_id, tag) for tag in context.enclosing_tags),
+        )
+
+        processed_db.executemany(
+            "INSERT into paragraph_enclosed_tag values(?, ?)",
+            ((para_id, tag) for tag in context.enclosed_tags),
+        )
+
+        processed_db.executemany(
+            "INSERT into paragraph_enclosed_class values(?, ?)",
+            ((para_id, klass) for klass in context.enclosed_classes),
         )
 
         # speaker_keys |= set(context.speaker.keys())
@@ -465,8 +492,9 @@ if __name__ == "__main__":
         DROP table if exists paragraph;
         DROP table if exists session;
         DROP table if exists debate;
-        DROP table if exists paragraph_enclosing_context;
-        DROP table if exists paragraph_enclosed_context;
+        DROP table if exists paragraph_enclosing_tag;
+        DROP table if exists paragraph_enclosed_tag;
+        DROP table if exists paragraph_enclosed_class;
 
 
         create table session(
@@ -497,20 +525,22 @@ if __name__ == "__main__":
             unique(session_id, sequence_number)
         );
 
-        create table paragraph_enclosing_context(
-            session_id references session,
-            sequence_number,
+        create table paragraph_enclosing_tag(
+            para_id references paragraph,
             tag,
-            primary key (session_id, sequence_number, tag),
-            foreign key (session_id, sequence_number) references paragraph
+            primary key (para_id, tag)
         );
 
-        create table paragraph_enclosed_context(
-            session_id references session,
-            sequence_number,
+        create table paragraph_enclosed_tag(
+            para_id references paragraph,
             tag,
-            primary key (session_id, sequence_number, tag),
-            foreign key (session_id, sequence_number) references paragraph
+            primary key (para_id, tag)
+        );
+
+        create table paragraph_enclosed_class(
+            para_id references paragraph,
+            class,
+            primary key (para_id, class)
         );
 
         pragma journal_mode=WAL;
