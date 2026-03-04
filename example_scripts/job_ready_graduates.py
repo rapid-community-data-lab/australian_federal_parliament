@@ -24,8 +24,8 @@ python example_scripts/job_ready_graduates.py
 import datetime
 import sqlite3
 
-from openpyxl import Workbook
-from openpyxl import styles
+from openpyxl import Workbook, styles
+from openpyxl.utils.cell import get_column_letter
 
 # Note - isolation_level=None won't work in future versions of Python (sometime after
 # 3.13), this should be using the autocommit=True value instead, but requires some
@@ -75,9 +75,10 @@ query = """
         session.transcript_pdf_url as full_transcript_link,
         debate.title as debate_title,
         fragment_number as speech_number,
-        case when interjection then 'interjector' else parliamentarian.display_name end,
-        case when interjection then null else party.name end,
-        paragraph.paragraph_text,
+        case when interjection then 'interjector' else parliamentarian.display_name end
+            as speaker,
+        case when interjection then null else party.name end as party,
+        paragraph.paragraph_text || '\n' as paragraph_text,
         lower(paragraph_text) glob '*job?ready graduates*' as matches_phrase
     from paragraph
     inner join session using(session_id)
@@ -126,7 +127,7 @@ for row in all_rows:
     row[2].hyperlink = link
     row[2].value = "Session Transcript"
 
-# Zebra stripe speeches.
+# Zebra stripe speeches and set text to wrap
 all_rows = worksheet.rows
 next(all_rows)  # skip header
 
@@ -146,6 +147,20 @@ for row in all_rows:
     if colour:
         for cell in row:
             cell.fill = solid_fill
+
+    for cell in row:
+        cell.alignment = styles.Alignment(
+            wrap_text=True, vertical="top", horizontal="left"
+        )
+
+# Format column widths and alignments for readability
+for i, header in enumerate(header):
+    col = worksheet.column_dimensions[get_column_letter(i + 1)]
+
+    col.width = 15
+
+    if header == "paragraph_text":
+        col.width = 40
 
 
 workbook.save("job_ready_graduates_speeches.xlsx")
