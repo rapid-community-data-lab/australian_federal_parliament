@@ -8,9 +8,12 @@ Speeches are selected by finding:
 - All speeches included in debate context incorporating the string 'job?ready graduates'
 - After 2020-01-01
 
-Run this from the root of this repo as:
+This requires that all of the scripts in the root directory to collect and prepare have
+already been run.
 
-python example_scripts/job_ready_graduates.py
+Run this from the containing folder as:
+
+python job_ready_graduates.py
 
 # /// script
 # requires-python = ">=3.12"
@@ -30,7 +33,7 @@ from openpyxl.utils.cell import get_column_letter
 # Note - isolation_level=None won't work in future versions of Python (sometime after
 # 3.13), this should be using the autocommit=True value instead, but requires some
 # investigation for different python versions
-db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
+db = sqlite3.connect("../../oz_federal_hansard.db", isolation_level=None)
 
 # Create a temporary table to handle interjections as CSS classes - this is a temporary
 # measure until we've resolved all of the speaker identification issues.
