@@ -162,5 +162,8 @@ for i, header in enumerate(header):
     if header == "paragraph_text":
         col.width = 40
 
+# Freeze the header
+
+worksheet.freeze_panes = "A2"
 
 workbook.save("job_ready_graduates_speeches.xlsx")
