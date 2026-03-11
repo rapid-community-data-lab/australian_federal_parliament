@@ -13,7 +13,7 @@ Text matching was done in a case-insensitive manner, and the hyphen was optional
 
 This is designed to capture most of the explicit discussion about the Job-Ready Graduates legislation. This includes specific discussion of the bill during the legislative process (particularly the second reading speeches), procedural elements of the legislative process such as referring the bill to a committee and the subsequent report, amendments made in the senate, and statements by elected representatives on the nature and impact of the bill after its passage into law.
 
-This dataset was prepared using the approach documented in [our Github repository](https://github.com/rapid-community-data-lab/australian_federal_parliament). The final dataset was prepared using [this exact script](). In brief this means:
+This dataset was prepared using the approach documented in [our Github repository](https://github.com/rapid-community-data-lab/australian_federal_parliament). The final dataset was prepared using [this exact script](https://github.com/rapid-community-data-lab/australian_federal_parliament/blob/v0.0.1/example_scripts/job_ready_graduates/job_ready_graduates.py). In brief this means:
 
 1. Downloading all of the XML transcripts of each session of the House of Representatives or the Senate.
 2. Extracting the paragraphs of text from each transcript, along with information about who was speaking and the procedural context.
@@ -30,18 +30,20 @@ Each row in the spreadsheet corresponds to one 'paragraph' as marked up in the s
 
 The dataset includes the following attributes:
 
-date: the date of the session.	
-chamber: whether this session was for the House of Reps or the Senate.
-full_transcript_link: the link to the official (full day) transcript corresponding to this row.
-debate_title: the title of the debate, indicating the procedural context in which the speech occured.
-speech_number: the speech number within that session (date/house).
-speaker: the name of the speaker who has the procedural floor, or 'interjector' if the speaking is interrupted (including by the Speaker of the House or President of the Senate). This will be blank for certain procedural or descriptive text, such as noting that division was occuring.
-party: The party the speaker belongs to (at the time of speaking).
-paragraph_text: The paragraph of transcribed text (removing all other markup).	
-matches_phrase: 1 if this paragraph contains the phrase 'job-ready graduates' (case-insensitive), 0 otherwise.
+| attribute  | description |
+|-------|-----|
+|*date* | the date of the session |
+|*chamber* | whether this session was for the House of Reps or the Senate |
+|*full_transcript_link* | the link to the official (full day) transcript corresponding to this row |
+|*debate_title* | the title of the debate, indicating the procedural context in which the speech occured |
+|*speech_number* | the speech number within that session (date/house) |
+|*speaker* | The name of the speaker who has the procedural floor, or 'interjector' if the speaking is interrupted (including by the Speaker of the House or President of the Senate). This will be blank for certain procedural or descriptive text, such as noting that division was occuring. |
+|*party* | The party the speaker belongs to (at the time of speaking) |
+|*paragraph_text* | The paragraph of transcribed text (removing all other markup) |
+|*matches_phrase* | 1 if this paragraph contains the phrase 'job-ready graduates' (case-insensitive), 0 otherwise. |
 
 Rows with the same date, chamber and speech_number correspond to the same speech.
 
-# License
+# License and Attribution
 
-Note that this dataset is licensed CC-BY-NC-ND, as under the [original license of the data](https://www.aph.gov.au/Help/Disclaimer_Privacy_Copyright#c) released by Australian Parliament.
+This material is sourced from the "Proceedings of Australian Federal Parliament", released by the [Australian Parliament Website](https://www.aph.gov.au/Help/Disclaimer_Privacy_Copyright#c) and is licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
