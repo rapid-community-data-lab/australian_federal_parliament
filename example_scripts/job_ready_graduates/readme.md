@@ -44,6 +44,6 @@ The dataset includes the following attributes:
 
 Rows with the same date, chamber and speech_number correspond to the same speech.
 
-# License
+# License and Attribution
 
-Note that this dataset is licensed CC-BY-NC-ND, as under the [original license of the data](https://www.aph.gov.au/Help/Disclaimer_Privacy_Copyright#c) released by Australian Parliament.
+This material is sourced from the "Proceedings of Australian Federal Parliament", released by the [Australian Parliament Website](https://www.aph.gov.au/Help/Disclaimer_Privacy_Copyright#c) and is licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
