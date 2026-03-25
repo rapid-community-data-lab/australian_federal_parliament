@@ -20,7 +20,10 @@ import itertools
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 @dc.dataclass
 class TranscriptContext:
@@ -94,7 +97,12 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
     Extract text units from XML transcripts, with sufficient information about context.
     """
 
-    root = ET.fromstring(xml_str)
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError as e:
+        logger.exception(f"Parsing (XML) error occurred for transcript {transcript_key}")
+        raise e
+
 
     # Session information first - this is the basic information about the date, house,
     # etc. and is the same across all of the elements in this transcript.
@@ -404,7 +412,11 @@ def process_sgml_transcript(transcript_key, transcript_pdf_url, sgml_str):
     # Replace remaining entities with unicode equivalents
     transformed = entity_detector.sub(replace_sgml_entity, removed_unclosed_tags)
 
-    root = ET.fromstring(transformed)
+    try:
+        root = ET.fromstring(transformed)
+    except ET.ParseError as e:
+        logger.exception(f"Parsing (SGML) error occurred for transcript {transcript_key}. SKIPPING.")
+
 
     return transcript_key, transcript_pdf_url, "sgml", None, None
 
@@ -484,6 +496,8 @@ ignore_transcripts = set(
 )
 
 if __name__ == "__main__":
+
+    logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
 
     transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
     processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
