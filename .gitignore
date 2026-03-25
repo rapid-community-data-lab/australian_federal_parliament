@@ -1,1 +1,12 @@
-*.db
+# Python artefacts
+
+# Logs
+*.log
+
+# Data, databases, & related artefacts
+*.csv
+*.db*
+
+# R artefacts
+*.Rproj
+
