@@ -495,86 +495,103 @@ ignore_transcripts = set(
     )
 )
 
-if __name__ == "__main__":
 
-    logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
-
-    transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
-    processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
-
-    processed_db.executescript("""
-        DROP table if exists paragraph;
-        DROP table if exists session;
-        DROP table if exists debate;
-        DROP table if exists paragraph_enclosing_tag;
-        DROP table if exists paragraph_enclosed_tag;
-        DROP table if exists paragraph_enclosed_class;
+def initialise_database(db: sqlite3.Connection):
+    db.executescript("""
+           DROP table if exists paragraph;
+           DROP table if exists session;
+           DROP table if exists debate;
+           DROP table if exists paragraph_enclosing_tag;
+           DROP table if exists paragraph_enclosed_tag;
+           DROP table if exists paragraph_enclosed_class;
 
 
-        create table session(
-            session_id integer primary key,
-            url unique,
-            transcript_pdf_url,
-            date datetime,
-            chamber text
-        );
+           create table session
+           (
+               session_id integer primary key,
+               url unique,
+               transcript_pdf_url,
+               date       datetime,
+               chamber    text
+           );
 
-        create table debate(
-            debate_id integer primary key,
-            session_id integer references session,
-            debate_no integer,
-            title,
-            unique(session_id, debate_no)
-        );
+           create table debate
+           (
+               debate_id  integer primary key,
+               session_id integer references session,
+               debate_no  integer,
+               title,
+               unique (session_id, debate_no)
+           );
 
-        create table paragraph(
-            para_id integer primary key,
-            session_id references session,
-            sequence_number,
-            speaker_id,
-            debate_id,
-            fragment_number,
-            fragment_type,
-            paragraph_text,
-            unique(session_id, sequence_number)
-        );
+           create table paragraph
+           (
+               para_id integer primary key,
+               session_id references session,
+               sequence_number,
+               speaker_id,
+               debate_id,
+               fragment_number,
+               fragment_type,
+               paragraph_text,
+               unique (session_id, sequence_number)
+           );
 
-        create table paragraph_enclosing_tag(
-            para_id references paragraph,
-            tag,
-            primary key (para_id, tag)
-        );
+           create table paragraph_enclosing_tag
+           (
+               para_id references paragraph,
+               tag,
+               primary key (para_id, tag)
+           );
 
-        create table paragraph_enclosed_tag(
-            para_id references paragraph,
-            tag,
-            primary key (para_id, tag)
-        );
+           create table paragraph_enclosed_tag
+           (
+               para_id references paragraph,
+               tag,
+               primary key (para_id, tag)
+           );
 
-        create table paragraph_enclosed_class(
-            para_id references paragraph,
-            class,
-            primary key (para_id, class)
-        );
+           create table paragraph_enclosed_class
+           (
+               para_id references paragraph,
+               class,
+               primary key (para_id, class)
+           );
 
-        pragma journal_mode=WAL;
-        """)
+           pragma
+           journal_mode=WAL;
+           """)
 
-    ## Process the tag counts for each transcript
-    transcripts = transcript_db.execute("""
+
+def get_transcript_list(db: sqlite3.Connection, skip_format = []) -> sqlite3.Cursor:
+    """
+    Fetches a list of transcripts to process.
+
+    skip_format is a list that should contain 'sgml' or 'xml' if either or both should be skipped. Use an empty list
+    (default) if all formats should be processed.
+    """
+    conditions = ["retrieved is not null", "transcript_markup is not null"]
+    if "sgml" in skip_format:
+        conditions.append("transcript_markup_type != 'sgml'")
+    if "xml" in skip_format:
+        conditions.append("transcript_markup_type != 'xml'")
+
+    where_statement = " and ".join(conditions)
+
+    return transcript_db.execute(f"""
         SELECT 
             url,
             transcript_pdf_url, 
             transcript_markup_type, 
             transcript_markup
         from hansard_transcript
-        where retrieved is not null
-            and transcript_markup is not null
-            -- and transcript_markup_type = 'sgml'
+        where {where_statement}
         order by url
         """)
 
-    processed_db.execute("begin")
+
+def run_transcript_processing(db: sqlite3.Connection, transcripts):
+    db.execute("begin")
 
     with cf.ProcessPoolExecutor(8) as pool:
 
@@ -622,7 +639,7 @@ if __name__ == "__main__":
 
                     if transcript_type == "xml":
                         next_debate = insert_processed_xml_transcript_detail(
-                            processed_db,
+                            db,
                             session_id,
                             next_debate,
                             url,
@@ -645,7 +662,7 @@ if __name__ == "__main__":
             ) = task.result()
             if transcript_type == "xml":
                 next_debate = insert_processed_xml_transcript_detail(
-                    processed_db,
+                    db,
                     session_id,
                     next_debate,
                     url,
@@ -655,4 +672,19 @@ if __name__ == "__main__":
                 )
             session_id += 1
 
-    processed_db.execute("commit")
+    db.execute("commit")
+
+
+if __name__ == "__main__":
+
+    logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
+
+    transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
+    processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
+
+    initialise_database(processed_db)
+
+    ## Fetch the list of transcripts to be processed
+    transcripts_list = get_transcript_list(transcript_db)
+
+    run_transcript_processing(processed_db, transcripts_list)

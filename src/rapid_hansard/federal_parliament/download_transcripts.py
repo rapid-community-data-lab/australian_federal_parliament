@@ -427,45 +427,57 @@ def retrieve_transcripts(driver, db, download_dir):
                 continue
 
 
-if __name__ == "__main__":
-
-    import os
-    import sys
-
-    args = sys.argv[1:]
-
-    db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
-
+def initialise_db(db: sqlite3.Connection, full_refresh_sitemap = False):
     db.executescript("""
-        CREATE table if not exists sitemap(
-            url primary key,
-            source_sitemap,
-            lastmod
-        );
+                     CREATE table if not exists sitemap
+                     (
+                         url
+                         primary
+                         key,
+                         source_sitemap,
+                         lastmod
+                     );
 
-        CREATE table if not exists process_data(
-            key text primary key,
-            value
-        );
+                     CREATE table if not exists process_data
+                     (
+                         key
+                         text
+                         primary
+                         key,
+                         value
+                     );
 
-        CREATE table if not exists hansard_transcript(
-            url primary key,
-            lastmod text,
-            retrieved text,
-            html_ref_page text,
-            transcript_pdf_url text,
-            transcript_markup_url text,
-            transcript_markup_type text,
-            transcript_markup text
-        );
+                     CREATE table if not exists hansard_transcript
+                     (
+                         url
+                         primary
+                         key,
+                         lastmod
+                         text,
+                         retrieved
+                         text,
+                         html_ref_page
+                         text,
+                         transcript_pdf_url
+                         text,
+                         transcript_markup_url
+                         text,
+                         transcript_markup_type
+                         text,
+                         transcript_markup
+                         text
+                     );
 
-        pragma journal_mode=WAL;
-        """)
+                     pragma
+                     journal_mode=WAL;
+                     """)
 
-    if "--full-refresh-sitemap" in args:
+    if full_refresh_sitemap:
         db.execute("DELETE from sitemap")
         db.execute("DELETE from process_data where key = 'last_full_refresh_time")
 
+
+def run_transcript_download(db: sqlite3.Connection):
     with tempfile.TemporaryDirectory(dir=".") as tempdir:
         options = webdriver.FirefoxOptions()
 
@@ -495,3 +507,17 @@ if __name__ == "__main__":
 
         finally:
             driver.quit()
+
+
+if __name__ == "__main__":
+
+    import os
+    import sys
+
+    args = sys.argv[1:]
+
+    db_connection = sqlite3.connect("transcripts_progress.db", isolation_level=None)
+
+    initialise_db(db_connection, "--full-refresh-sitemap" in args)
+
+    run_transcript_download(db_connection)
