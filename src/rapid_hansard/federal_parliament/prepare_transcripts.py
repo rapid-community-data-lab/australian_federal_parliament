@@ -22,6 +22,10 @@ import sqlite3
 import xml.etree.ElementTree as ET
 import logging
 
+from rapid_hansard import __version__ as rapid_hansard_version
+
+rapid_hansard_schema_version = "2026-03-04"
+
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +500,7 @@ ignore_transcripts = set(
 )
 
 
-def initialise_database(db: sqlite3.Connection):
+def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     db.executescript("""
            DROP table if exists paragraph;
            DROP table if exists session;
@@ -504,6 +508,7 @@ def initialise_database(db: sqlite3.Connection):
            DROP table if exists paragraph_enclosing_tag;
            DROP table if exists paragraph_enclosed_tag;
            DROP table if exists paragraph_enclosed_class;
+           DROP table if exists rapid_meta;
 
 
            create table session
@@ -533,7 +538,7 @@ def initialise_database(db: sqlite3.Connection):
                debate_id,
                fragment_number,
                fragment_type,
-               paragraph_text,
+               paragraph_te
                unique (session_id, sequence_number)
            );
 
@@ -557,10 +562,23 @@ def initialise_database(db: sqlite3.Connection):
                class,
                primary key (para_id, class)
            );
+               
+           CREATE table rapid_meta
+           (
+               key text primary key,
+               value text
+           );
 
            pragma
            journal_mode=WAL;
            """)
+
+    db.execute(f"""
+        insert into rapid_meta (key, value) values 
+            ('rapid_hansard_version', '{rapid_hansard_version}'),
+            ('rapid_hansard_schema_version', '{rapid_hansard_schema_version}'),
+            ('transcript_rapid_hansard_version', '{transcript_rapid_version}')
+    """)
 
 
 def get_transcript_list(db: sqlite3.Connection, skip_format = []) -> sqlite3.Cursor:
@@ -675,6 +693,14 @@ def run_transcript_processing(db: sqlite3.Connection, transcripts):
     db.execute("commit")
 
 
+def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
+    try:
+        version = db.execute("select value from rapid_meta where key = 'rapid_hansard_version'").fetchone()[0]
+    except:
+        version = None
+    return version
+
+
 if __name__ == "__main__":
 
     logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
@@ -682,7 +708,9 @@ if __name__ == "__main__":
     transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
     processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
 
-    initialise_database(processed_db)
+    transcript_rapid_version = get_transcript_rapid_version(transcript_db)
+
+    initialise_database(processed_db, transcript_rapid_version)
 
     ## Fetch the list of transcripts to be processed
     transcripts_list = get_transcript_list(transcript_db)

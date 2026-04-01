@@ -44,6 +44,7 @@ import sqlite3
 import tempfile
 import time
 import traceback
+import logging
 import xml.etree.ElementTree as ET
 
 from urllib.parse import urlparse, parse_qs
@@ -51,6 +52,13 @@ from urllib.parse import urlparse, parse_qs
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
+
+from rapid_hansard import __version__ as rapid_hansard_version
+
+
+transcript_db_schema_version = "2026-03-04"
+
+logger = logging.getLogger(__name__)
 
 
 def timestamp_now():
@@ -467,10 +475,39 @@ def initialise_db(db: sqlite3.Connection, full_refresh_sitemap = False):
                          transcript_markup
                          text
                      );
+                         
+                     CREATE table if not exists rapid_meta
+                     (
+                         key text primary key,
+                         value text
+                     );
 
-                     pragma
+                     pragma 
                      journal_mode=WAL;
                      """)
+
+    # Check python code and db schema versions
+    existing_rapid_version = db.execute("select value from rapid_meta where key = 'rapid_hansard_version'").fetchone()
+    if existing_rapid_version is None:
+        db.execute(f"insert into rapid_meta values ('rapid_hansard_version', '{rapid_hansard_version}')")
+    elif existing_rapid_version[0] == rapid_hansard_version:
+        logger.debug(f"Database was created with the same rapid_hansard version ({rapid_hansard_version})")
+    else:
+        msg = (f"Transcript database was created with rapid_hansard version {existing_rapid_version} but is being "
+               f"updated with rapid_hansard version {rapid_hansard_version}. There may be some inconsistencies.")
+        logger.warning(msg)
+        print(msg)
+
+    existing_db_version = db.execute("select value from rapid_meta where key = 'transcript_db_version'").fetchone()
+    if existing_db_version is None:
+        db.execute(f"insert into rapid_meta values ('transcript_db_version', '{transcript_db_schema_version}')")
+    elif existing_db_version[0] == transcript_db_schema_version:
+        logger.debug(f"Database was created with the same schema version ({transcript_db_schema_version})")
+    else:
+        msg = (f"Transcript database was created with schema version {existing_db_version} but is being "
+               f"updated with schema version {transcript_db_schema_version}. There may be errors.")
+        logger.warning(msg)
+        print(msg)
 
     if full_refresh_sitemap:
         db.execute("DELETE from sitemap")
@@ -510,6 +547,7 @@ def run_transcript_download(db: sqlite3.Connection):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(filename='download_transcripts.log', encoding='utf-8', level=logging.DEBUG)
 
     import os
     import sys
