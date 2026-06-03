@@ -29,6 +29,7 @@ rapid_hansard_schema_version = "2026-03-04"
 
 logger = logging.getLogger(__name__)
 
+
 @dc.dataclass
 class TranscriptContext:
     """Keeps track of all enclosing context for an element."""
@@ -104,9 +105,10 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
     try:
         root = ET.fromstring(xml_str)
     except ET.ParseError as e:
-        logger.exception(f"Parsing (XML) error occurred for transcript {transcript_key}")
+        logger.exception(
+            f"Parsing (XML) error occurred for transcript {transcript_key}"
+        )
         raise e
-
 
     # Session information first - this is the basic information about the date, house,
     # etc. and is the same across all of the elements in this transcript.
@@ -419,8 +421,9 @@ def process_sgml_transcript(transcript_key, transcript_pdf_url, sgml_str):
     try:
         root = ET.fromstring(transformed)
     except ET.ParseError as e:
-        logger.exception(f"Parsing (SGML) error occurred for transcript {transcript_key}. SKIPPING.")
-
+        logger.exception(
+            f"Parsing (SGML) error occurred for transcript {transcript_key}. SKIPPING."
+        )
 
     return transcript_key, transcript_pdf_url, "sgml", None, None
 
@@ -538,7 +541,7 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                debate_id,
                fragment_number,
                fragment_type,
-               paragraph_te
+               paragraph_text,
                unique (session_id, sequence_number)
            );
 
@@ -581,7 +584,7 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     """)
 
 
-def get_transcript_list(db: sqlite3.Connection, skip_format = []) -> sqlite3.Cursor:
+def get_transcript_list(db: sqlite3.Connection, skip_format=[]) -> sqlite3.Cursor:
     """
     Fetches a list of transcripts to process.
 
@@ -695,7 +698,9 @@ def run_transcript_processing(db: sqlite3.Connection, transcripts):
 
 def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
     try:
-        version = db.execute("select value from rapid_meta where key = 'rapid_hansard_version'").fetchone()[0]
+        version = db.execute(
+            "select value from rapid_meta where key = 'rapid_hansard_version'"
+        ).fetchone()[0]
     except:
         version = None
     return version
@@ -703,7 +708,9 @@ def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
 
 if __name__ == "__main__":
 
-    logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
+    logging.basicConfig(
+        filename="prepare_transcripts.log", encoding="utf-8", level=logging.DEBUG
+    )
 
     transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
     processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
