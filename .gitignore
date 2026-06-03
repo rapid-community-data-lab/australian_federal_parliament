@@ -10,3 +10,7 @@
 # R artefacts
 *.Rproj
 
+# Python artefacts
+*.egg-info
+*__pycache__
+
