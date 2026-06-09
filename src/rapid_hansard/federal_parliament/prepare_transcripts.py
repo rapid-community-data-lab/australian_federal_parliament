@@ -291,6 +291,7 @@ def insert_processed_xml_transcript_detail(
 
             last_debate_title = debate_title
 
+        # Normalise speaker_id when present
         speaker_id = context.speaker.get("name.id", None)
         # parliamentary handbook is all uppercase, but transcripts occassionally use
         # lower case, so normalise.
@@ -314,6 +315,8 @@ def insert_processed_xml_transcript_detail(
             ),
         )
 
+        # NOTE: it's important that we grab the paragraph_id straight after inserting
+        # it! If we put another insert before this we will get the wrong identifier.
         para_id = list(processed_db.execute("SELECT last_insert_rowid()"))[0][0]
 
         processed_db.executemany(
@@ -331,7 +334,24 @@ def insert_processed_xml_transcript_detail(
             ((para_id, klass) for klass in context.enclosed_classes),
         )
 
-        # speaker_keys |= set(context.speaker.keys())
+        # Handle some additional contextual information about fragments/procedural
+        # units. This is currently a bit weird here, but it's unclear where to fit this
+        # otherwise... page numbers and time stamps can be repeated throughout a speech,
+        # but first.speech should be a speech (procedural unit) property...
+        if speaker_id:
+
+            processed_db.execute(
+                # Note: this has no primary key defined yet...
+                "INSERT into fragment_speaker_info values(?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    fragment_number,
+                    speaker_id,
+                    context.speaker.get("time.stamp", None),
+                    context.speaker.get("page.number", None),
+                    context.speaker.get("first.speech", None),
+                ),
+            )
 
     return next_debate
 
@@ -505,35 +525,36 @@ ignore_transcripts = set(
 
 def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     db.executescript("""
-           DROP table if exists paragraph;
-           DROP table if exists session;
-           DROP table if exists debate;
-           DROP table if exists paragraph_enclosing_tag;
-           DROP table if exists paragraph_enclosed_tag;
-           DROP table if exists paragraph_enclosed_class;
-           DROP table if exists rapid_meta;
+            DROP table if exists paragraph;
+            DROP table if exists session;
+            DROP table if exists debate;
+            DROP table if exists paragraph_enclosing_tag;
+            DROP table if exists paragraph_enclosed_tag;
+            DROP table if exists paragraph_enclosed_class;
+            DROP table if exists rapid_meta;
+            DROP table if exists fragment_speaker_info;
 
 
-           create table session
-           (
+            create table session
+            (
                session_id integer primary key,
                url unique,
                transcript_pdf_url,
                date       datetime,
                chamber    text
-           );
+            );
 
-           create table debate
-           (
+            create table debate
+            (
                debate_id  integer primary key,
                session_id integer references session,
                debate_no  integer,
                title,
                unique (session_id, debate_no)
-           );
+            );
 
-           create table paragraph
-           (
+            create table paragraph
+            (
                para_id integer primary key,
                session_id references session,
                sequence_number,
@@ -542,39 +563,60 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                fragment_number,
                fragment_type,
                paragraph_text,
-               unique (session_id, sequence_number)
-           );
+               unique (session_id, sequence_number),
+               foreign key (session_id, fragment_number, speaker_id) 
+                  references fragment_speaker_info 
+            );
 
-           create table paragraph_enclosing_tag
-           (
+            create table fragment_speaker_info
+            (
+                session_id integer references session,
+                fragment_number integer,
+                speaker_id,
+                time_stamp,
+                page_no,
+                first_speech
+                /* 
+                There's also at least: electorate, party, in.gov, and role for
+                ministerial appts, but I'm not sure if that fits here. \
+                */
+                /* 
+                This is a candidate key for now - but there seems to be very spotty
+                coverage of some fields so let's investigate everything.
+                */
+                -- primary key (session_id, fragment_number, speaker_id)
+            );
+
+            create table paragraph_enclosing_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_tag
-           (
+            create table paragraph_enclosed_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_class
-           (
+            create table paragraph_enclosed_class
+            (
                para_id references paragraph,
                class,
                primary key (para_id, class)
-           );
+            );
                
-           CREATE table rapid_meta
-           (
+            CREATE table rapid_meta
+            (
                key text primary key,
                value text
-           );
+            );
 
-           pragma
-           journal_mode=WAL;
-           """)
+            pragma
+            journal_mode=WAL;
+            """)
 
     db.execute(f"""
         insert into rapid_meta (key, value) values 
