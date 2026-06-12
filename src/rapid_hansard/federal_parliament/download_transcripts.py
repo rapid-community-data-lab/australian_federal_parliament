@@ -46,6 +46,8 @@ import time
 import traceback
 import logging
 import xml.etree.ElementTree as ET
+import click
+from pathlib import Path
 
 from urllib.parse import urlparse, parse_qs
 
@@ -135,7 +137,7 @@ def init_and_refresh_sitemap(driver, db):
         if source_sitemap in previously_retrieved:
             continue
 
-        print(i + 1, "/", len(sitemaps), source_sitemap)
+        click.echo(i + 1, "/", len(sitemaps), source_sitemap)
 
         db.execute("begin")
 
@@ -149,7 +151,7 @@ def init_and_refresh_sitemap(driver, db):
 
         time.sleep(15)
 
-    print("Sitemap initialised.")
+    click.echo("Sitemap initialised.")
 
     # Last partial refresh
     last_refresh_time = datetime.datetime.fromisoformat(
@@ -165,7 +167,7 @@ def init_and_refresh_sitemap(driver, db):
     reference_refresh = last_refresh_time - refresh_delta
     reference_date = reference_refresh.date().isoformat()
 
-    print(f"Refreshing sitemap until {reference_date}.")
+    click.echo(f"Refreshing sitemap until {reference_date}.")
 
     # Now ensure we have an up to date copy of the sitemap, taking advantage of the fact
     # that the urls are provided in order of last modification date.
@@ -238,7 +240,7 @@ def identify_transcripts_to_retrieve(db):
                 (url, lastmod),
             )
 
-    print("Top 10 most common page numbers:", pages.most_common(10))
+    click.echo("Top 10 most common page numbers:", pages.most_common(10))
 
     db.execute("commit")
 
@@ -269,7 +271,7 @@ def retrieve_transcripts(driver, db, download_dir):
     failures = 0
 
     for i, url in enumerate(to_retrieve):
-        print("Retrieving", i, "/", total_to_retrieve, url)
+        click.echo("Retrieving", i, "/", total_to_retrieve, url)
 
         # Handle failures by moving on - we'll try them again on the next run.
         try:
@@ -372,7 +374,7 @@ def retrieve_transcripts(driver, db, download_dir):
                         with open(download_path, "r") as f:
                             transcript_markup = f.read()
                     else:
-                        print(f"Failed to retrieve SGML transcript {transcript_link}")
+                        click.echo(f"Failed to retrieve SGML transcript {transcript_link}")
                         raise
                 else:
                     raise
@@ -390,7 +392,7 @@ def retrieve_transcripts(driver, db, download_dir):
                         transcript_markup = pres[0].text
 
                 if transcript_markup is None:
-                    print("Couldn't retrieve a transcript at", transcript_link)
+                    click.echo("Couldn't retrieve a transcript at", transcript_link)
 
             db.execute(
                 """
@@ -419,11 +421,11 @@ def retrieve_transcripts(driver, db, download_dir):
 
         except Exception as e:
             failures += 1
-            print(traceback.format_exc())
-            print(
-                f"Uncaught exception for {transcript_link} with {url} - transcript not "
-                "retrieved, continuing"
-            )
+            click.echo(traceback.format_exc())
+            logger.exception(e)
+            message = f"Uncaught exception for {transcript_link} with {url} - transcript not retrieved, continuing"
+            click.echo(message)
+            logger.error(message)
 
             db.execute("rollback")
 
@@ -496,7 +498,7 @@ def initialise_db(db: sqlite3.Connection, full_refresh_sitemap = False):
         msg = (f"Transcript database was created with rapid_hansard version {existing_rapid_version} but is being "
                f"updated with rapid_hansard version {rapid_hansard_version}. There may be some inconsistencies.")
         logger.warning(msg)
-        print(msg)
+        click.echo(msg)
 
     existing_db_version = db.execute("select value from rapid_meta where key = 'transcript_db_version'").fetchone()
     if existing_db_version is None:
@@ -507,7 +509,7 @@ def initialise_db(db: sqlite3.Connection, full_refresh_sitemap = False):
         msg = (f"Transcript database was created with schema version {existing_db_version} but is being "
                f"updated with schema version {transcript_db_schema_version}. There may be errors.")
         logger.warning(msg)
-        print(msg)
+        click.echo(msg)
 
     if full_refresh_sitemap:
         db.execute("DELETE from sitemap")
@@ -546,16 +548,28 @@ def run_transcript_download(db: sqlite3.Connection):
             driver.quit()
 
 
+@click.command()
+@click.argument('database', type=click.Path(),
+                required=False, default="transcripts.db",
+                help="Filename for the sqlite database of transcripts. If the database doesn't already exist, a new one"
+                     " will be created.")
+@click.option('--full-refresh-sitemap', 'full_refresh_sitemap', is_flag=True)
+def download_hansard(database: Path, full_refresh_sitemap):
+    if database.exists:
+        message = f"Using existing database {click.format_filename(database)}"
+    else:
+        message = f"Creating new database {click.format_filename(database)}"
+    click.echo(message)
+    logger.info(message)
+
+    db_connection = sqlite3.connect(database, isolation_level=None)
+
+    initialise_db(db_connection, full_refresh_sitemap)
+
+    run_transcript_download(db_connection)
+
+
 if __name__ == "__main__":
     logging.basicConfig(filename='download_transcripts.log', encoding='utf-8', level=logging.DEBUG)
 
-    import os
-    import sys
-
-    args = sys.argv[1:]
-
-    db_connection = sqlite3.connect("transcripts_progress.db", isolation_level=None)
-
-    initialise_db(db_connection, "--full-refresh-sitemap" in args)
-
-    run_transcript_download(db_connection)
+    download_hansard()
