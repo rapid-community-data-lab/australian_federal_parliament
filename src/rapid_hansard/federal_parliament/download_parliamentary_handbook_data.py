@@ -51,6 +51,54 @@ def retrieve_parliamentarians(db):
         parliamentarians,
     )
 
+    # Now do the fiddly lookup of first speeches, one at a time. There might be a better
+    # way to do this, but speeches seem to be maintained separately...
+    db.execute("DROP table if exists parliamentarian_speeches")
+    db.execute(
+        """
+        CREATE table parliamentarian_speeches (
+            phid text,
+            title text,
+            link text,
+            speech_order integer
+        )
+        """,
+    )
+    # We use this one to look up another ID based on their parliamentary identifier
+    bio_endpoint = "https://handbookapi.aph.gov.au/api/Parliamentarian/GetBiography"
+
+    # Then we use this one to get the actual speech details
+    speech_endpoint = "https://handbookapi.aph.gov.au/api/Parliamentarian/GetSpeeches"
+
+    for i, parliamentarian in enumerate(parliamentarians):
+
+        print(f"Retrieving first speeches for {i+1} / {len(parliamentarians)}")
+
+        phid = parliamentarian["PHID"]
+
+        bio_response = requests.get(bio_endpoint, params={"id": phid})
+        bio_response.raise_for_status()
+
+        person_fk = bio_response.json()["PersonFk"]
+
+        speeches = requests.get(speech_endpoint, params={"Id": person_fk})
+        speeches.raise_for_status()
+
+        print(phid, speeches.json())
+
+        db.executemany(
+            """
+            INSERT into parliamentarian_speeches values (?, ?, ?, ?)
+
+            """,
+            (
+                (phid, speech["Title"], speech["Link"], speech["Order"])
+                for speech in speeches.json()
+            ),
+        )
+
+        time.sleep(10)
+
 
 def retrieve_party_records(db):
     """
