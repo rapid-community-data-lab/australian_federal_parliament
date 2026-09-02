@@ -111,7 +111,7 @@ def count_parlinfo_nav_items(transcript_key, html_str):
 
 if __name__ == "__main__":
 
-    transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
+    transcript_db = sqlite3.connect("../../federal_parliament/transcripts_progress.db", isolation_level=None)
     index_db = sqlite3.connect("transcript_markup_index.db", isolation_level=None)
 
     index_db.executescript(

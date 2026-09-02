@@ -1,14 +1,11 @@
-[build-system]
-requires = ["setuptools >= 77.0.3"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "rapid_hansard"
 license = "GPL-3.0-or-later"
 dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
-    "lxml"
+    "lxml",
+    "click"
 ]
 
 [project.optional-dependencies]
@@ -17,10 +14,17 @@ download_hansard = [
     "requests"
 ]
 
+[project.scripts]
+rapid_hansard = "rapid_hansard.cli:cli"
+
 [project.urls]
-Homepage = "https://rapid-community-data-lab.github.io/"
+Homepage = "https://www.rapid-cdl.edu.au"
 Repository = "https://github.com/rapid-community-data-lab/australian_federal_parliament"
 Issues = "https://github.com/rapid-community-data-lab/australian_federal_parliament/issues"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]
 version = {attr = "rapid_hansard.__version__"}

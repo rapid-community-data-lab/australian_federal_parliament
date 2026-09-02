@@ -8,10 +8,6 @@ certain kinds of information difficult to extract.
 
 """
 
-# /// script
-# requires-python = ">=3.12"
-# ///
-
 import collections
 import concurrent.futures as cf
 import dataclasses as dc
@@ -21,6 +17,7 @@ import re
 import sqlite3
 import xml.etree.ElementTree as ET
 import logging
+from pathlib import Path
 
 from rapid_hansard import __version__ as rapid_hansard_version
 
@@ -538,7 +535,7 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                debate_id,
                fragment_number,
                fragment_type,
-               paragraph_te
+               paragraph_text,
                unique (session_id, sequence_number)
            );
 
@@ -581,7 +578,7 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     """)
 
 
-def get_transcript_list(db: sqlite3.Connection, skip_format = []) -> sqlite3.Cursor:
+def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) -> sqlite3.Cursor:
     """
     Fetches a list of transcripts to process.
 
@@ -589,14 +586,14 @@ def get_transcript_list(db: sqlite3.Connection, skip_format = []) -> sqlite3.Cur
     (default) if all formats should be processed.
     """
     conditions = ["retrieved is not null", "transcript_markup is not null"]
-    if "sgml" in skip_format:
+    if skip_format == "sgml":
         conditions.append("transcript_markup_type != 'sgml'")
-    if "xml" in skip_format:
+    if skip_format == "xml":
         conditions.append("transcript_markup_type != 'xml'")
 
     where_statement = " and ".join(conditions)
 
-    return transcript_db.execute(f"""
+    return db.execute(f"""
         SELECT 
             url,
             transcript_pdf_url, 
@@ -701,18 +698,15 @@ def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
     return version
 
 
-if __name__ == "__main__":
-
-    logging.basicConfig(filename='prepare_transcripts.log', encoding='utf-8', level=logging.DEBUG)
-
-    transcript_db = sqlite3.connect("transcripts_progress.db", isolation_level=None)
-    processed_db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
+def process_transcripts(transcript_db_fn: str|Path, processed_db_fn: str|Path, skip_format: str|None=None) -> None:
+    transcript_db = sqlite3.connect(transcript_db_fn, isolation_level=None)
+    processed_db = sqlite3.connect(processed_db_fn, isolation_level=None)
 
     transcript_rapid_version = get_transcript_rapid_version(transcript_db)
 
     initialise_database(processed_db, transcript_rapid_version)
 
     ## Fetch the list of transcripts to be processed
-    transcripts_list = get_transcript_list(transcript_db)
+    transcripts_list = get_transcript_list(transcript_db, skip_format=skip_format)
 
     run_transcript_processing(processed_db, transcripts_list)

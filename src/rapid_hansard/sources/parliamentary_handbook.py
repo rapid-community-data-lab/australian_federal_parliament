@@ -4,15 +4,11 @@ data extracted from transcripts.
 
 """
 
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "requests"
-# ]
-# ///
-
 import sqlite3
 import time
+from pathlib import Path
+import datetime as dt
+from click import echo
 
 import requests
 
@@ -98,7 +94,7 @@ def retrieve_party_records(db):
 
         party_id = party["PartyID"]
 
-        print(f"Retrieving party {i+1}/{len(parties)}:", party["PrimaryName"])
+        echo(f"Retrieving party {i+1}/{len(parties)}: {party["PrimaryName"]}")
 
         data = {"partyID": party_id}
 
@@ -186,7 +182,7 @@ def retrieve_ministries(db):
 
         ministry_id = ministry["Id"]
 
-        print(f"Retrieving ministry {i+1}/{len(ministries)}:", ministry["MinistryName"])
+        echo(f"Retrieving ministry {i+1}/{len(ministries)}: {ministry["MinistryName"]}")
 
         ministry_detailed = requests.get(detailed_url.format(ministry_id))
 
@@ -217,17 +213,11 @@ def retrieve_electorates(db):
 
 
 def timestamp_now():
-    return datetime.datetime.now(datetime.UTC).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
-if __name__ == "__main__":
-
-    import os
-    import sys
-
-    args = sys.argv[1:]
-
-    db = sqlite3.connect("oz_federal_hansard.db", isolation_level=None)
+def fetch_all(database_name:str|Path):
+    db = sqlite3.connect(database_name, isolation_level=None)
 
     db.execute("begin")
     # Update info from the parliamentary handbook

@@ -30,13 +30,6 @@ The sync follows this process:
 
 """
 
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "selenium",
-# ]
-# ///
-
 import collections
 import datetime
 import os
@@ -47,7 +40,7 @@ import traceback
 import logging
 import xml.etree.ElementTree as ET
 import click
-from pathlib import Path
+import datetime as dt
 
 from urllib.parse import urlparse, parse_qs
 
@@ -55,16 +48,101 @@ from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 
+from rapid_hansard.sources.parlinfo.html import get_metadata_from_html
+
 from rapid_hansard import __version__ as rapid_hansard_version
+transcript_db_schema_version = "2026-06-12"
 
-
-transcript_db_schema_version = "2026-03-04"
 
 logger = logging.getLogger(__name__)
 
 
 def timestamp_now():
     return datetime.datetime.now(datetime.UTC).isoformat()
+
+def initialise_db(db: sqlite3.Connection, full_refresh_sitemap=False):
+    db.executescript("""
+                     CREATE table if not exists sitemap
+                     (
+                         url
+                         primary
+                         key,
+                         source_sitemap,
+                         lastmod
+                     );
+
+                     CREATE table if not exists process_data
+                     (
+                         key
+                         text
+                         primary
+                         key,
+                         value
+                     );
+
+                     CREATE table if not exists hansard_transcript
+                     (
+                         url
+                         primary
+                         key,
+                         lastmod
+                         text,
+                         retrieved
+                         text,
+                         html_ref_page
+                         text,
+                         transcript_pdf_url
+                         text,
+                         transcript_markup_url
+                         text,
+                         transcript_markup_type
+                         text,
+                         transcript_markup
+                         text,
+                         session_date text,
+                         session_room text
+                     );
+
+                     CREATE table if not exists rapid_meta
+                     (
+                         key
+                         text
+                         primary
+                         key,
+                         value
+                         text
+                     );
+
+                     pragma
+                     journal_mode=WAL;
+                     """)
+
+    # Check python code and db schema versions
+    existing_rapid_version = db.execute("select value from rapid_meta where key = 'rapid_hansard_version'").fetchone()
+    if existing_rapid_version is None:
+        db.execute(f"insert into rapid_meta values ('rapid_hansard_version', '{rapid_hansard_version}')")
+    elif existing_rapid_version[0] == rapid_hansard_version:
+        logger.debug(f"Database was created with the same rapid_hansard version ({rapid_hansard_version})")
+    else:
+        msg = (f"Transcript database was created with rapid_hansard version {existing_rapid_version} but is being "
+               f"updated with rapid_hansard version {rapid_hansard_version}. There may be some inconsistencies.")
+        logger.warning(msg)
+        click.echo(msg)
+
+    existing_db_version = db.execute("select value from rapid_meta where key = 'transcript_db_version'").fetchone()
+    if existing_db_version is None:
+        db.execute(f"insert into rapid_meta values ('transcript_db_version', '{transcript_db_schema_version}')")
+    elif existing_db_version[0] == transcript_db_schema_version:
+        logger.debug(f"Database was created with the same schema version ({transcript_db_schema_version})")
+    else:
+        msg = (f"Transcript database was created with schema version {existing_db_version} but is being "
+               f"updated with schema version {transcript_db_schema_version}. There may be errors.")
+        logger.warning(msg)
+        click.echo(msg)
+
+    if full_refresh_sitemap:
+        db.execute("DELETE from sitemap")
+        db.execute("DELETE from process_data where key = 'last_full_refresh_time")
 
 
 def extract_sitemap_components(sitemap_xml_str):
@@ -137,7 +215,7 @@ def init_and_refresh_sitemap(driver, db):
         if source_sitemap in previously_retrieved:
             continue
 
-        click.echo(i + 1, "/", len(sitemaps), source_sitemap)
+        click.echo(f"{i + 1}/{len(sitemaps)} {source_sitemap}")
 
         db.execute("begin")
 
@@ -240,7 +318,7 @@ def identify_transcripts_to_retrieve(db):
                 (url, lastmod),
             )
 
-    click.echo("Top 10 most common page numbers:", pages.most_common(10))
+    logger.info(f"Top 10 most common page numbers: {pages.most_common(10)}")
 
     db.execute("commit")
 
@@ -271,7 +349,7 @@ def retrieve_transcripts(driver, db, download_dir):
     failures = 0
 
     for i, url in enumerate(to_retrieve):
-        click.echo("Retrieving", i, "/", total_to_retrieve, url)
+        click.echo(f"Retrieving {i}/{total_to_retrieve} {url}")
 
         # Handle failures by moving on - we'll try them again on the next run.
         try:
@@ -392,7 +470,7 @@ def retrieve_transcripts(driver, db, download_dir):
                         transcript_markup = pres[0].text
 
                 if transcript_markup is None:
-                    click.echo("Couldn't retrieve a transcript at", transcript_link)
+                    click.echo("Couldn't retrieve a transcript at " + transcript_link)
 
             db.execute(
                 """
@@ -437,87 +515,43 @@ def retrieve_transcripts(driver, db, download_dir):
                 continue
 
 
-def initialise_db(db: sqlite3.Connection, full_refresh_sitemap = False):
-    db.executescript("""
-                     CREATE table if not exists sitemap
-                     (
-                         url
-                         primary
-                         key,
-                         source_sitemap,
-                         lastmod
-                     );
+def store_html_metadata(db: sqlite3.Connection):
+    click.echo("Processing ParlInfo webpage metadata for transcripts...")
+    cursor = db.execute(
+        """
+        select *
+        from hansard_transcript
+        where transcript_markup is not null
+          and transcript_markup_type = 'xml'
+          and session_date is null;
+        """)
 
-                     CREATE table if not exists process_data
-                     (
-                         key
-                         text
-                         primary
-                         key,
-                         value
-                     );
+    n = 0
+    latest = dt.date(1901, 1, 1)
 
-                     CREATE table if not exists hansard_transcript
-                     (
-                         url
-                         primary
-                         key,
-                         lastmod
-                         text,
-                         retrieved
-                         text,
-                         html_ref_page
-                         text,
-                         transcript_pdf_url
-                         text,
-                         transcript_markup_url
-                         text,
-                         transcript_markup_type
-                         text,
-                         transcript_markup
-                         text
-                     );
-                         
-                     CREATE table if not exists rapid_meta
-                     (
-                         key text primary key,
-                         value text
-                     );
+    for session in cursor:
+        metadata = get_metadata_from_html(session[0], session[3])
 
-                     pragma 
-                     journal_mode=WAL;
-                     """)
+        key_metadata = (metadata['session_date'], metadata['session_room'], session[0])
 
-    # Check python code and db schema versions
-    existing_rapid_version = db.execute("select value from rapid_meta where key = 'rapid_hansard_version'").fetchone()
-    if existing_rapid_version is None:
-        db.execute(f"insert into rapid_meta values ('rapid_hansard_version', '{rapid_hansard_version}')")
-    elif existing_rapid_version[0] == rapid_hansard_version:
-        logger.debug(f"Database was created with the same rapid_hansard version ({rapid_hansard_version})")
+        db.execute("""
+                     update hansard_transcript
+                     set session_date = ?,
+                         session_room = ?
+                     where url = ?
+                     """, key_metadata)
+
+        n = n+1
+        latest = max(latest, metadata["session_date"])
+
+    if n > 0:
+        click.echo(f"Date and chamber metadata recorded for {n} transcripts. The most recent of these transcripts was {latest}!")
     else:
-        msg = (f"Transcript database was created with rapid_hansard version {existing_rapid_version} but is being "
-               f"updated with rapid_hansard version {rapid_hansard_version}. There may be some inconsistencies.")
-        logger.warning(msg)
-        click.echo(msg)
-
-    existing_db_version = db.execute("select value from rapid_meta where key = 'transcript_db_version'").fetchone()
-    if existing_db_version is None:
-        db.execute(f"insert into rapid_meta values ('transcript_db_version', '{transcript_db_schema_version}')")
-    elif existing_db_version[0] == transcript_db_schema_version:
-        logger.debug(f"Database was created with the same schema version ({transcript_db_schema_version})")
-    else:
-        msg = (f"Transcript database was created with schema version {existing_db_version} but is being "
-               f"updated with schema version {transcript_db_schema_version}. There may be errors.")
-        logger.warning(msg)
-        click.echo(msg)
-
-    if full_refresh_sitemap:
-        db.execute("DELETE from sitemap")
-        db.execute("DELETE from process_data where key = 'last_full_refresh_time")
+        click.echo("No new transcripts to find metadata for!")
 
 
 def run_transcript_download(db: sqlite3.Connection):
-    with tempfile.TemporaryDirectory(dir=".") as tempdir:
+    with tempfile.TemporaryDirectory(dir="") as tempdir:
         options = webdriver.FirefoxOptions()
 
         # The download options are necessary to handle the SGML files with mixed
@@ -543,33 +577,9 @@ def run_transcript_download(db: sqlite3.Connection):
             init_and_refresh_sitemap(driver, db)
             identify_transcripts_to_retrieve(db)
             retrieve_transcripts(driver, db, tempdir)
+            store_html_metadata(db)
 
         finally:
             driver.quit()
 
 
-@click.command()
-@click.argument('database', type=click.Path(),
-                required=False, default="transcripts.db",
-                help="Filename for the sqlite database of transcripts. If the database doesn't already exist, a new one"
-                     " will be created.")
-@click.option('--full-refresh-sitemap', 'full_refresh_sitemap', is_flag=True)
-def download_hansard(database: Path, full_refresh_sitemap):
-    if database.exists:
-        message = f"Using existing database {click.format_filename(database)}"
-    else:
-        message = f"Creating new database {click.format_filename(database)}"
-    click.echo(message)
-    logger.info(message)
-
-    db_connection = sqlite3.connect(database, isolation_level=None)
-
-    initialise_db(db_connection, full_refresh_sitemap)
-
-    run_transcript_download(db_connection)
-
-
-if __name__ == "__main__":
-    logging.basicConfig(filename='download_transcripts.log', encoding='utf-8', level=logging.DEBUG)
-
-    download_hansard()
