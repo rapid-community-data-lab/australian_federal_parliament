@@ -5,7 +5,8 @@ dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
     "lxml",
-    "click"
+    "click",
+    "polars",
 ]
 
 [project.optional-dependencies]
