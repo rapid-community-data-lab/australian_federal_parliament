@@ -5,6 +5,19 @@
 Clone or download the source code, and the root folder of the code, in a Python virtual environment (minimum Python 
 version 3.12), run `pip install .`
 
+Some functionality requires additional packages which can be installed with appropriate dependency groups:
+
+```
+# Extras for downloading transcripts from parlinfo
+pip install .[download_hansard]
+
+# Extras for creating parquet exports
+pip install .[export_parquet]
+
+```
+
+
+
 ## Usage
 
 To build a fresh full database of processed transcripts, execute the following (you can change the database 

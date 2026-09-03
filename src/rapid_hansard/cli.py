@@ -121,10 +121,17 @@ def parquet(parsed_db: str, output_folder: str):
     """
     Takes a database of prepared transcripts, and creates a set of parquet files representing the main tables of interest.
 
+
+
     Arguments:\n
-        parsed_db: Filename for the database of parsed transcript data. Example: rapid_hansard.db
-        output_folder: Output folder to hold parquet tables. The folder will be created if it
-            doesn't already exist. Existing files will be overwritten.
+        parsed_db: Filename for the database of parsed transcript data. Example: rapid_hansard.db\n
+        output_folder: Output folder to hold parquet tables. The folder will be created if it doesn't already exist. Existing files will be overwritten.
+
+    Dependencies:\n
+
+        Requires extra packages: install `rapid_hansard` with the dependency group `export_parquet` to get these:\n
+
+        pip install .[export_parquet]
 
     """
     export_parquet(parsed_db, output_folder)
