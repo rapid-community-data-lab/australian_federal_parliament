@@ -1,4 +1,8 @@
 # Python artefacts
+*__pycache__*
+/.python-version
+*.egg-info
+
 
 # Logs
 *.log
@@ -6,6 +10,10 @@
 # Data, databases, & related artefacts
 *.csv
 *.db*
+
+# Exports folder, but only at the root
+
+/exports
 
 # R artefacts
 *.Rproj
