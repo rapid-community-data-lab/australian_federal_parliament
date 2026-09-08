@@ -143,7 +143,7 @@ def parquet_paragraph(db_connection: sqlite3.Connection, destination: Path) -> N
         paragraph_query,
         db_connection,
         iter_batches=True,
-        batch_size=1000000,
+        batch_size=500000,
         schema_overrides={
             "para_id": pl.datatypes.Int64,
             "session_id": pl.datatypes.Int64,
@@ -160,8 +160,7 @@ def parquet_paragraph(db_connection: sqlite3.Connection, destination: Path) -> N
 
         # Write batches out one a time.
         for i, df in enumerate(paragraph_batches):
-            print(f"Preparing batch {i+1}")
-            working_file = Path(tempdir, f"paragraph{i}.parquet")
+            working_file = Path(tempdir, f"paragraph{i:03}.parquet")
             df.write_parquet(working_file)
 
         # Put the batches together into one convenient file
