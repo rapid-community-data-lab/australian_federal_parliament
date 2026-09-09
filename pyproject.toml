@@ -5,13 +5,16 @@ dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
     "lxml",
-    "click"
+    "click",
 ]
 
 [project.optional-dependencies]
 download_hansard = [
     "selenium",
     "requests"
+]
+export_parquet = [
+    "polars",
 ]
 
 [project.scripts]
