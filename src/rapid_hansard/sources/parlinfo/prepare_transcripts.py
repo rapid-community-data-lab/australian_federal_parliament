@@ -499,35 +499,35 @@ ignore_transcripts = set(
 
 def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     db.executescript("""
-           DROP table if exists paragraph;
-           DROP table if exists session;
-           DROP table if exists debate;
-           DROP table if exists paragraph_enclosing_tag;
-           DROP table if exists paragraph_enclosed_tag;
-           DROP table if exists paragraph_enclosed_class;
-           DROP table if exists rapid_meta;
+            DROP table if exists paragraph;
+            DROP table if exists session;
+            DROP table if exists debate;
+            DROP table if exists paragraph_enclosing_tag;
+            DROP table if exists paragraph_enclosed_tag;
+            DROP table if exists paragraph_enclosed_class;
+            DROP table if exists rapid_meta;
 
 
-           create table session
-           (
+            create table session
+            (
                session_id integer primary key,
                url unique,
                transcript_pdf_url,
                date       datetime,
                chamber    text
-           );
+            );
 
-           create table debate
-           (
+            create table debate
+            (
                debate_id  integer primary key,
                session_id integer references session,
                debate_no  integer,
                title,
                unique (session_id, debate_no)
-           );
+            );
 
-           create table paragraph
-           (
+            create table paragraph
+            (
                para_id integer primary key,
                session_id references session,
                sequence_number,
@@ -537,38 +537,38 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                fragment_type,
                paragraph_text,
                unique (session_id, sequence_number)
-           );
+            );
 
-           create table paragraph_enclosing_tag
-           (
+            create table paragraph_enclosing_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_tag
-           (
+            create table paragraph_enclosed_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_class
-           (
+            create table paragraph_enclosed_class
+            (
                para_id references paragraph,
                class,
                primary key (para_id, class)
-           );
+            );
                
-           CREATE table rapid_meta
-           (
+            CREATE table rapid_meta
+            (
                key text primary key,
                value text
-           );
+            );
 
-           pragma
-           journal_mode=WAL;
-           """)
+            pragma
+            journal_mode=WAL;
+            """)
 
     db.execute(f"""
         insert into rapid_meta (key, value) values 
