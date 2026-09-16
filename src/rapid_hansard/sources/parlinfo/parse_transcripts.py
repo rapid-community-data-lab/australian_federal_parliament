@@ -254,7 +254,6 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             continue
 
         # Finally - the thing we actually care about - the paragraphs of text
-        # TODO: handle context from the p elements in the newer style transcripts.
         elif tag in ("p", "para"):
 
             enclosed_tags = set()
@@ -269,8 +268,6 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             timestamp = None
 
             # For new style paragraph tags, look for the speaker ID in the href.
-            # TODO: for p tags, the important info is contained in the classes applied
-            # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
                 paragraph_text = remove_p_markup(element)
 
