@@ -93,6 +93,20 @@ def remove_para_markup(paragraph):
     return " ".join(extracted_text.split())
 
 
+def remove_p_markup(paragraph):
+    """
+    Extract plain text of p, and normalise whitespace/newlines.
+
+    Accounts for inserted procedural text, which isn't needed for older para tags.
+
+    """
+
+    # print(ET.tostring(paragraph))
+    extracted_text = "".join(paragraph.itertext())
+
+    return " ".join(extracted_text.split())
+
+
 def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
     """
     Extract text units from XML transcripts, with sufficient information about context.
@@ -175,8 +189,11 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
         # TODO: handle context from the p elements in the newer style transcripts.
         elif tag in ("p", "para"):
 
-            # TODO: handle procedural stuff, like speaker names embedded in the text.
-            paragraph_text = remove_para_markup(element)
+            if tag == "p":
+                # TODO: handle procedural stuff, like speaker names embedded in the text.
+                paragraph_text = remove_p_markup(element)
+            else:
+                paragraph_text = remove_para_markup(element)
 
             enclosed_tags = set()
             enclosed_classes = set()
@@ -191,19 +208,12 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
 
-                anchors = list(element.iter("a"))
-
-                if len(anchors) == 1:
-                    if "href" in anchors[0].attrib:
+                for anchor in element.iter("a"):
+                    # Check the type attrib as well, as there are anchors to the chamber
+                    # with a href but empty string type.
+                    if "href" in anchor.attrib and anchor.attrib.get("type", ""):
                         speaker = {}
-                        speaker["name.id"] = anchors[0].attrib["href"]
-
-                elif len(anchors) > 1:
-                    print(
-                        "DEBUG: Too many anchors in one paragraph",
-                        transcript_key,
-                        [ET.tostring(anchor) for anchor in anchors]
-                    )
+                        speaker["name.id"] = anchor.attrib["href"]
 
             # Always attach the current speaker reference - this means that runs of
             # paragraphs without otherwise attributing the speaker be assigned
