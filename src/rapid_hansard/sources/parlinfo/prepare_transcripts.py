@@ -191,11 +191,19 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
 
-                for anchor in element.iter("a"):
+                anchors = list(element.iter("a"))
 
-                    if "href" in anchor.attrib:
+                if len(anchors) == 1:
+                    if "href" in anchors[0].attrib:
                         speaker = {}
-                        speaker["name.id"] = anchor.attrib["href"]
+                        speaker["name.id"] = anchors[0].attrib["href"]
+
+                elif len(anchors) > 1:
+                    print(
+                        "DEBUG: Too many anchors in one paragraph",
+                        transcript_key,
+                        [ET.tostring(anchor) for anchor in anchors]
+                    )
 
             # Always attach the current speaker reference - this means that runs of
             # paragraphs without otherwise attributing the speaker be assigned
@@ -612,7 +620,7 @@ def get_transcript_list(
         where {where_statement}
         order by url
         """
-        
+
     return db.execute(query, [sample_rate])
 
 
