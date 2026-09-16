@@ -191,9 +191,8 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
 
-                anchor = element.find("a")
+                for anchor in element.iter("a"):
 
-                if anchor is not None:
                     if "href" in anchor.attrib:
                         speaker = {}
                         speaker["name.id"] = anchor.attrib["href"]
@@ -578,12 +577,20 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     """)
 
 
-def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) -> sqlite3.Cursor:
+def get_transcript_list(
+    db: sqlite3.Connection,
+    skip_format: str|None = None,
+    sample_rate: int = 1) -> sqlite3.Cursor:
     """
     Fetches a list of transcripts to process.
 
-    skip_format is a list that should contain 'sgml' or 'xml' if either or both should be skipped. Use an empty list
-    (default) if all formats should be processed.
+    skip_format is either 'sgml' or 'xml' if it should be skipped be skipped. Use None
+    if all formats should be processed.
+
+    sample_rate is an optional integer greater than or equal to 1 - on average only 1 in
+    every sample_rate transcripts will be processed when sample_rate > 1. This is a
+    development convenience, is not deterministic and should not be used for full data
+    processing.
     """
     conditions = ["retrieved is not null", "transcript_markup is not null"]
     if skip_format == "sgml":
@@ -591,9 +598,11 @@ def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) ->
     if skip_format == "xml":
         conditions.append("transcript_markup_type != 'xml'")
 
+    conditions.append("(random() % ?) = 0")
+
     where_statement = " and ".join(conditions)
 
-    return db.execute(f"""
+    query = f"""
         SELECT 
             url,
             transcript_pdf_url, 
@@ -602,7 +611,9 @@ def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) ->
         from hansard_transcript
         where {where_statement}
         order by url
-        """)
+        """
+        
+    return db.execute(query, [sample_rate])
 
 
 def run_transcript_processing(db: sqlite3.Connection, transcripts):
@@ -698,7 +709,11 @@ def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
     return version
 
 
-def process_transcripts(transcript_db_fn: str|Path, processed_db_fn: str|Path, skip_format: str|None=None) -> None:
+def process_transcripts(
+    transcript_db_fn: str|Path,
+    processed_db_fn: str|Path,
+    skip_format: str|None=None,
+    sample_rate: int=1) -> None:
     transcript_db = sqlite3.connect(transcript_db_fn, isolation_level=None)
     processed_db = sqlite3.connect(processed_db_fn, isolation_level=None)
 
@@ -707,6 +722,6 @@ def process_transcripts(transcript_db_fn: str|Path, processed_db_fn: str|Path, s
     initialise_database(processed_db, transcript_rapid_version)
 
     ## Fetch the list of transcripts to be processed
-    transcripts_list = get_transcript_list(transcript_db, skip_format=skip_format)
+    transcripts_list = get_transcript_list(transcript_db, skip_format=skip_format, sample_rate=sample_rate)
 
     run_transcript_processing(processed_db, transcripts_list)
