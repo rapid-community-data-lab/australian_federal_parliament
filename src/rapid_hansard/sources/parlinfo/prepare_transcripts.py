@@ -93,6 +93,42 @@ def remove_para_markup(paragraph):
     return " ".join(extracted_text.split())
 
 
+# The set of classes that indicate paragraph text that is not part of the speech itself.
+# There are a whole lot of these - the focus is on the major elements/common procedural
+# contextual info that is generated and would impact on text/searching.
+REMOVE_CLASSES = set([
+    "HPS-Electorate",
+    "HPS-Electorate1",
+    "HPS-GeneralIInterjecting",
+    "HPS-GeneralIInterjecting1",
+    "HPS-GeneralInterjecting",
+    "HPS-MemberAnswer",
+    "HPS-MemberAnswer1",
+    "HPS-MemberContinuation",
+    "HPS-MemberContinuation1",
+    "HPS-MemberIInterjecting",
+    "HPS-MemberInterjecting",
+    "HPS-MemberInterjecting1",
+    "HPS-MemberQuestion",
+    "HPS-MemberQuestion1",
+    "HPS-MemberSpeech",
+    "HPS-MemberSpeech1",
+    "HPS-MinisterialTitles",
+    "HPS-MinisterialTitles1",
+    "HPS-Ministry",
+    "HPS-OfficeAnswer",
+    "HPS-OfficeContinuation",
+    "HPS-OfficeContinuation1",
+    "HPS-OfficeIInterjecting",
+    "HPS-OfficeInterjecting",
+    "HPS-OfficeInterjecting1",
+    "HPS-OfficeQuestion",
+    "HPS-OfficeSpeech",
+    "HPS-OfficeSpeech1",
+    "HPS-Time",
+    "HPS-Time1",
+])
+
 def remove_p_markup(paragraph):
     """
     Extract plain text of p, and normalise whitespace/newlines.
@@ -101,10 +137,31 @@ def remove_p_markup(paragraph):
 
     """
 
-    # print(ET.tostring(paragraph))
-    extracted_text = "".join(paragraph.itertext())
+    remove = REMOVE_CLASSES
 
-    return " ".join(extracted_text.split())
+    to_process = [paragraph]
+    include_text = []
+
+    while to_process:
+        elem = to_process.pop()
+
+        # procedural/generated text tag, move on.
+        if elem.attrib.get("class", "") in remove:
+            # but make sure to keep the trailing tail of text, as that's valid.
+            if elem.tail:
+                include_text.append(elem.tail)
+
+            continue
+
+        include_text.extend((elem.text or "", elem.tail or ""))
+        to_process.extend(reversed(elem))
+
+    # Join pieces back together and normalise line breaks from the markup.
+    extracted_text = " ".join("".join(include_text).split()).strip()
+
+    # Remove leading leftover brackets and punctuation from the procedural elements
+    # above.
+    return re.sub(r'^[()—\-: ]*', "", extracted_text)
 
 
 def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
