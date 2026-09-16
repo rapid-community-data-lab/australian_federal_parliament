@@ -41,6 +41,17 @@ class TranscriptContext:
     fragment_type: str = None
 
 
+@dc.dataclass
+class ParagraphDetail:
+    """
+    Paragraph level details.
+
+    """
+    text: str
+    speaker: dict = dc.field(default_factory=dict)
+    timestamp: str | None = None
+
+
 def process_debate_info(element):
     """
     Extract information about the current state of the debate from the given element.
@@ -226,11 +237,11 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 speaker={},
             )
 
-        # Speaker information varies quite a bit.
-        # In newer transcripts, the talker tag appears only at the start of the speech
-        # for the person who has the procedural floor - the actual speaker and changes
-        # in speakers are marked in the individual p tags inside the talk.text entry and
-        # interjections/continuations are only
+        # Speaker information varies quite a bit. In newer transcripts, the talker tag
+        # appears only at the start of the speech for the person who has the call - the
+        # actual speaker and changes in speakers are marked in the individual p tags
+        # inside the talk.text entry and interjections/continuations are only
+        # represented in the classes/anchors applied.
         elif tag == "talker":
             speaker = {elem.tag: elem.text for elem in element}
             context = dc.replace(context, speaker=speaker)
@@ -246,12 +257,6 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
         # TODO: handle context from the p elements in the newer style transcripts.
         elif tag in ("p", "para"):
 
-            if tag == "p":
-                # TODO: handle procedural stuff, like speaker names embedded in the text.
-                paragraph_text = remove_p_markup(element)
-            else:
-                paragraph_text = remove_para_markup(element)
-
             enclosed_tags = set()
             enclosed_classes = set()
 
@@ -260,17 +265,41 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 if "class" in e.attrib:
                     enclosed_classes.add(e.attrib["class"])
 
+
+            timestamp = None
+
             # For new style paragraph tags, look for the speaker ID in the href.
             # TODO: for p tags, the important info is contained in the classes applied
             # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
+                paragraph_text = remove_p_markup(element)
 
+                # Reset speaker when we hit an interjection. This is to handle
+                # non-specific (general is the word used in the css class)
+                # interjections, which aren't attributable to a specific person, but
+                # still interrupt the speech. These should always be followed by a
+                # continuation or another interjection, so we'll reset this
+                # eventually.
+                for elem in element.iter():
+                    if "Interject" in elem.attrib.get("class", ""):
+                        speaker = {}
+
+                    if elem.attrib.get("class", "") in ("HPS-Time", "HPS-Time1"):
+                        if elem.text:
+                            timestamp = elem.text.strip()
+
+                # Now try to find a real speaker.
                 for anchor in element.iter("a"):
                     # Check the type attrib as well, as there are anchors to the chamber
                     # with a href but empty string type.
                     if "href" in anchor.attrib and anchor.attrib.get("type", ""):
                         speaker = {}
                         speaker["name.id"] = anchor.attrib["href"]
+
+            else:
+                paragraph_text = remove_para_markup(element)
+
+            para = ParagraphDetail(paragraph_text, timestamp=timestamp, speaker=speaker)
 
             # Always attach the current speaker reference - this means that runs of
             # paragraphs without otherwise attributing the speaker be assigned
@@ -284,7 +313,7 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 enclosed_classes=enclosed_classes,
             )
 
-            processed.append((context, paragraph_text))
+            processed.append((context, para))
 
             # Continue as the leaf nodes are the p/para elements.
             continue
@@ -340,7 +369,7 @@ def insert_processed_xml_transcript_detail(
     next_debate = debate_id + 1
     debate_no = 1
 
-    for sequence_no, (context, paragraph_text) in enumerate(paragraphs):
+    for sequence_no, (context, para) in enumerate(paragraphs):
 
         debate_title = "\n".join(c.get("title", "") or "" for c in context.debate_info)
 
@@ -360,7 +389,7 @@ def insert_processed_xml_transcript_detail(
 
             last_debate_title = debate_title
 
-        speaker_id = context.speaker.get("name.id", None)
+        speaker_id = para.speaker.get("name.id", None)
         # parliamentary handbook is all uppercase, but transcripts occassionally use
         # lower case, so normalise.
         # Also normalise leading/trailing whitespace while we're at it.
@@ -371,7 +400,7 @@ def insert_processed_xml_transcript_detail(
         fragment_type = context.fragment_type
 
         processed_db.execute(
-            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 sequence_no,
@@ -379,7 +408,8 @@ def insert_processed_xml_transcript_detail(
                 debate_id,
                 fragment_number,
                 fragment_type,
-                paragraph_text,
+                para.timestamp,
+                para.text,
             ),
         )
 
@@ -609,10 +639,15 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                debate_id,
                fragment_number,
                fragment_type,
+               timestamp text,
                paragraph_text,
                unique (session_id, sequence_number)
             );
 
+            /* These paragraph tables are to support exploration of the (XML) tags and
+               (css) class structure - it's unlikely these will be directly usable, but
+               they do make it easy to find transcripts with particular
+               tags/combinations for closer checking. */
             create table paragraph_enclosing_tag
             (
                para_id references paragraph,
