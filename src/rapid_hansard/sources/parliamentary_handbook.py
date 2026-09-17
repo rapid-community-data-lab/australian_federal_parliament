@@ -18,7 +18,7 @@ def retrieve_parliamentarians(db):
     handbook_api = (
         "https://handbookapi.aph.gov.au/api/individuals?"
         "$orderby=FamilyName,GivenName"
-        "&$select=PHID,DisplayName,gender,dateOfBirth,dateOfDeath"
+        "&$select=PHID,FamilyName,GivenName,DisplayName,gender,dateOfBirth,dateOfDeath"
     )
 
     response = requests.get(handbook_api)
@@ -32,6 +32,8 @@ def retrieve_parliamentarians(db):
         CREATE table parliamentarian (
             phid primary key,
             display_name text,
+            family_name text,
+            given_name text,
             gender,
             date_of_birth,
             date_of_death
@@ -41,7 +43,7 @@ def retrieve_parliamentarians(db):
     db.executemany(
         """
         INSERT into parliamentarian values 
-            (:PHID, :DisplayName, :Gender, :DateOfBirth, :DateOfDeath)
+            (:PHID, :DisplayName, :FamilyName, :GivenName, :Gender, :DateOfBirth, :DateOfDeath)
 
         """,
         parliamentarians,
