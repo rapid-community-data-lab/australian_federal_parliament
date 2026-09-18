@@ -91,7 +91,9 @@ def parliament_data(database: Path):
 @click.argument('parsed_db', type=click.Path(), default="rapid_hansard.db")
 @click.option('--skip_format', default=None, type=click.Choice(['xml', 'sgml'], case_sensitive=False),
               help="Use this option to skip processing transcripts in a given format (SGML or XML).")
-def parse(transcript_db: Path, parsed_db: Path, skip_format: str|None):
+@click.option('--sample_rate', default=1, type=int,
+              help="Process only every 1 in sample_rate transcripts (for development only).")
+def parse(transcript_db: Path, parsed_db: Path, skip_format: str|None, sample_rate: int):
     """
     Takes a database of downloaded transcripts, and parses those transcripts into the RAPID-CDL Hansard data model. A
     new database will be created (any existing database at the `parsed_db` file path will be overwritten) for the
@@ -101,7 +103,7 @@ def parse(transcript_db: Path, parsed_db: Path, skip_format: str|None):
         transcript_db: The database that the transcripts have been downloaded into. e.g. transcripts.db\n
         parsed_db: Filename for the database of parsed transcript data. If the database already exists, it will be overwritten. Example: rapid_hansard.db
     """
-    process_transcripts(transcript_db, parsed_db, skip_format)
+    process_transcripts(transcript_db, parsed_db, skip_format, sample_rate=sample_rate)
 
 
 @cli.group(epilog=("Examples:\n\n\b\n"

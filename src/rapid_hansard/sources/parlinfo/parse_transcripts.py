@@ -41,6 +41,17 @@ class TranscriptContext:
     fragment_type: str = None
 
 
+@dc.dataclass
+class ParagraphDetail:
+    """
+    Paragraph level details.
+
+    """
+    text: str
+    speaker: dict = dc.field(default_factory=dict)
+    timestamp: str | None = None
+
+
 def process_debate_info(element):
     """
     Extract information about the current state of the debate from the given element.
@@ -91,6 +102,77 @@ def remove_para_markup(paragraph):
     extracted_text = "".join(paragraph.itertext())
 
     return " ".join(extracted_text.split())
+
+
+# The set of classes that indicate paragraph text that is not part of the speech itself.
+# There are a whole lot of these - the focus is on the major elements/common procedural
+# contextual info that is generated and would impact on text/searching.
+REMOVE_CLASSES = set([
+    "HPS-Electorate",
+    "HPS-Electorate1",
+    "HPS-GeneralIInterjecting",
+    "HPS-GeneralIInterjecting1",
+    "HPS-GeneralInterjecting",
+    "HPS-MemberAnswer",
+    "HPS-MemberAnswer1",
+    "HPS-MemberContinuation",
+    "HPS-MemberContinuation1",
+    "HPS-MemberIInterjecting",
+    "HPS-MemberInterjecting",
+    "HPS-MemberInterjecting1",
+    "HPS-MemberQuestion",
+    "HPS-MemberQuestion1",
+    "HPS-MemberSpeech",
+    "HPS-MemberSpeech1",
+    "HPS-MinisterialTitles",
+    "HPS-MinisterialTitles1",
+    "HPS-Ministry",
+    "HPS-OfficeAnswer",
+    "HPS-OfficeContinuation",
+    "HPS-OfficeContinuation1",
+    "HPS-OfficeIInterjecting",
+    "HPS-OfficeInterjecting",
+    "HPS-OfficeInterjecting1",
+    "HPS-OfficeQuestion",
+    "HPS-OfficeSpeech",
+    "HPS-OfficeSpeech1",
+    "HPS-Time",
+    "HPS-Time1",
+])
+
+def remove_p_markup(paragraph):
+    """
+    Extract plain text of p, and normalise whitespace/newlines.
+
+    Accounts for inserted procedural text, which isn't needed for older para tags.
+
+    """
+
+    remove = REMOVE_CLASSES
+
+    to_process = [paragraph]
+    include_text = []
+
+    while to_process:
+        elem = to_process.pop()
+
+        # procedural/generated text tag, move on.
+        if elem.attrib.get("class", "") in remove:
+            # but make sure to keep the trailing tail of text, as that's valid.
+            if elem.tail:
+                include_text.append(elem.tail)
+
+            continue
+
+        include_text.extend((elem.text or "", elem.tail or ""))
+        to_process.extend(reversed(elem))
+
+    # Join pieces back together and normalise line breaks from the markup.
+    extracted_text = " ".join("".join(include_text).split()).strip()
+
+    # Remove leading leftover brackets and punctuation from the procedural elements
+    # above.
+    return re.sub(r'^[()—\-: ]*', "", extracted_text)
 
 
 def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
@@ -155,11 +237,11 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 speaker={},
             )
 
-        # Speaker information varies quite a bit.
-        # In newer transcripts, the talker tag appears only at the start of the speech
-        # for the person who has the procedural floor - the actual speaker and changes
-        # in speakers are marked in the individual p tags inside the talk.text entry and
-        # interjections/continuations are only
+        # Speaker information varies quite a bit. In newer transcripts, the talker tag
+        # appears only at the start of the speech for the person who has the call - the
+        # actual speaker and changes in speakers are marked in the individual p tags
+        # inside the talk.text entry and interjections/continuations are only
+        # represented in the classes/anchors applied.
         elif tag == "talker":
             speaker = {elem.tag: elem.text for elem in element}
             context = dc.replace(context, speaker=speaker)
@@ -172,11 +254,7 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
             continue
 
         # Finally - the thing we actually care about - the paragraphs of text
-        # TODO: handle context from the p elements in the newer style transcripts.
         elif tag in ("p", "para"):
-
-            # TODO: handle procedural stuff, like speaker names embedded in the text.
-            paragraph_text = remove_para_markup(element)
 
             enclosed_tags = set()
             enclosed_classes = set()
@@ -186,17 +264,39 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 if "class" in e.attrib:
                     enclosed_classes.add(e.attrib["class"])
 
+
+            timestamp = None
+
             # For new style paragraph tags, look for the speaker ID in the href.
-            # TODO: for p tags, the important info is contained in the classes applied
-            # to different sections, not enclosing information like 'quote' tags etc.
             if tag == "p":
+                paragraph_text = remove_p_markup(element)
 
-                anchor = element.find("a")
+                # Reset speaker when we hit an interjection. This is to handle
+                # non-specific (general is the word used in the css class)
+                # interjections, which aren't attributable to a specific person, but
+                # still interrupt the speech. These should always be followed by a
+                # continuation or another interjection, so we'll reset this
+                # eventually.
+                for elem in element.iter():
+                    if "Interject" in elem.attrib.get("class", ""):
+                        speaker = {}
 
-                if anchor is not None:
-                    if "href" in anchor.attrib:
+                    if elem.attrib.get("class", "") in ("HPS-Time", "HPS-Time1"):
+                        if elem.text:
+                            timestamp = elem.text.strip()
+
+                # Now try to find a real speaker.
+                for anchor in element.iter("a"):
+                    # Check the type attrib as well, as there are anchors to the chamber
+                    # with a href but empty string type.
+                    if "href" in anchor.attrib and anchor.attrib.get("type", ""):
                         speaker = {}
                         speaker["name.id"] = anchor.attrib["href"]
+
+            else:
+                paragraph_text = remove_para_markup(element)
+
+            para = ParagraphDetail(paragraph_text, timestamp=timestamp, speaker=speaker)
 
             # Always attach the current speaker reference - this means that runs of
             # paragraphs without otherwise attributing the speaker be assigned
@@ -210,7 +310,7 @@ def process_xml_transcript(transcript_key, transcript_pdf_url, xml_str):
                 enclosed_classes=enclosed_classes,
             )
 
-            processed.append((context, paragraph_text))
+            processed.append((context, para))
 
             # Continue as the leaf nodes are the p/para elements.
             continue
@@ -266,7 +366,7 @@ def insert_processed_xml_transcript_detail(
     next_debate = debate_id + 1
     debate_no = 1
 
-    for sequence_no, (context, paragraph_text) in enumerate(paragraphs):
+    for sequence_no, (context, para) in enumerate(paragraphs):
 
         debate_title = "\n".join(c.get("title", "") or "" for c in context.debate_info)
 
@@ -286,7 +386,7 @@ def insert_processed_xml_transcript_detail(
 
             last_debate_title = debate_title
 
-        speaker_id = context.speaker.get("name.id", None)
+        speaker_id = para.speaker.get("name.id", None)
         # parliamentary handbook is all uppercase, but transcripts occassionally use
         # lower case, so normalise.
         # Also normalise leading/trailing whitespace while we're at it.
@@ -297,7 +397,7 @@ def insert_processed_xml_transcript_detail(
         fragment_type = context.fragment_type
 
         processed_db.execute(
-            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT into paragraph values(null, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 sequence_no,
@@ -305,7 +405,8 @@ def insert_processed_xml_transcript_detail(
                 debate_id,
                 fragment_number,
                 fragment_type,
-                paragraph_text,
+                para.timestamp,
+                para.text,
             ),
         )
 
@@ -499,35 +600,35 @@ ignore_transcripts = set(
 
 def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     db.executescript("""
-           DROP table if exists paragraph;
-           DROP table if exists session;
-           DROP table if exists debate;
-           DROP table if exists paragraph_enclosing_tag;
-           DROP table if exists paragraph_enclosed_tag;
-           DROP table if exists paragraph_enclosed_class;
-           DROP table if exists rapid_meta;
+            DROP table if exists paragraph;
+            DROP table if exists session;
+            DROP table if exists debate;
+            DROP table if exists paragraph_enclosing_tag;
+            DROP table if exists paragraph_enclosed_tag;
+            DROP table if exists paragraph_enclosed_class;
+            DROP table if exists rapid_meta;
 
 
-           create table session
-           (
+            create table session
+            (
                session_id integer primary key,
                url unique,
                transcript_pdf_url,
                date       datetime,
                chamber    text
-           );
+            );
 
-           create table debate
-           (
+            create table debate
+            (
                debate_id  integer primary key,
                session_id integer references session,
                debate_no  integer,
                title,
                unique (session_id, debate_no)
-           );
+            );
 
-           create table paragraph
-           (
+            create table paragraph
+            (
                para_id integer primary key,
                session_id references session,
                sequence_number,
@@ -535,40 +636,45 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
                debate_id,
                fragment_number,
                fragment_type,
+               timestamp text,
                paragraph_text,
                unique (session_id, sequence_number)
-           );
+            );
 
-           create table paragraph_enclosing_tag
-           (
+            /* These paragraph tables are to support exploration of the (XML) tags and
+               (css) class structure - it's unlikely these will be directly usable, but
+               they do make it easy to find transcripts with particular
+               tags/combinations for closer checking. */
+            create table paragraph_enclosing_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_tag
-           (
+            create table paragraph_enclosed_tag
+            (
                para_id references paragraph,
                tag,
                primary key (para_id, tag)
-           );
+            );
 
-           create table paragraph_enclosed_class
-           (
+            create table paragraph_enclosed_class
+            (
                para_id references paragraph,
                class,
                primary key (para_id, class)
-           );
+            );
                
-           CREATE table rapid_meta
-           (
+            CREATE table rapid_meta
+            (
                key text primary key,
                value text
-           );
+            );
 
-           pragma
-           journal_mode=WAL;
-           """)
+            pragma
+            journal_mode=WAL;
+            """)
 
     db.execute(f"""
         insert into rapid_meta (key, value) values 
@@ -578,12 +684,20 @@ def initialise_database(db: sqlite3.Connection, transcript_rapid_version):
     """)
 
 
-def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) -> sqlite3.Cursor:
+def get_transcript_list(
+    db: sqlite3.Connection,
+    skip_format: str|None = None,
+    sample_rate: int = 1) -> sqlite3.Cursor:
     """
     Fetches a list of transcripts to process.
 
-    skip_format is a list that should contain 'sgml' or 'xml' if either or both should be skipped. Use an empty list
-    (default) if all formats should be processed.
+    skip_format is either 'sgml' or 'xml' if it should be skipped be skipped. Use None
+    if all formats should be processed.
+
+    sample_rate is an optional integer greater than or equal to 1 - on average only 1 in
+    every sample_rate transcripts will be processed when sample_rate > 1. This is a
+    development convenience, is not deterministic and should not be used for full data
+    processing.
     """
     conditions = ["retrieved is not null", "transcript_markup is not null"]
     if skip_format == "sgml":
@@ -591,9 +705,11 @@ def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) ->
     if skip_format == "xml":
         conditions.append("transcript_markup_type != 'xml'")
 
+    conditions.append("(random() % ?) = 0")
+
     where_statement = " and ".join(conditions)
 
-    return db.execute(f"""
+    query = f"""
         SELECT 
             url,
             transcript_pdf_url, 
@@ -602,7 +718,9 @@ def get_transcript_list(db: sqlite3.Connection, skip_format: str|None = None) ->
         from hansard_transcript
         where {where_statement}
         order by url
-        """)
+        """
+
+    return db.execute(query, [sample_rate])
 
 
 def run_transcript_processing(db: sqlite3.Connection, transcripts):
@@ -698,7 +816,11 @@ def get_transcript_rapid_version(db: sqlite3.Connection) -> str | None:
     return version
 
 
-def process_transcripts(transcript_db_fn: str|Path, processed_db_fn: str|Path, skip_format: str|None=None) -> None:
+def process_transcripts(
+    transcript_db_fn: str|Path,
+    processed_db_fn: str|Path,
+    skip_format: str|None=None,
+    sample_rate: int=1) -> None:
     transcript_db = sqlite3.connect(transcript_db_fn, isolation_level=None)
     processed_db = sqlite3.connect(processed_db_fn, isolation_level=None)
 
@@ -707,6 +829,6 @@ def process_transcripts(transcript_db_fn: str|Path, processed_db_fn: str|Path, s
     initialise_database(processed_db, transcript_rapid_version)
 
     ## Fetch the list of transcripts to be processed
-    transcripts_list = get_transcript_list(transcript_db, skip_format=skip_format)
+    transcripts_list = get_transcript_list(transcript_db, skip_format=skip_format, sample_rate=sample_rate)
 
     run_transcript_processing(processed_db, transcripts_list)
