@@ -34,6 +34,9 @@ def export_parquet(parsed_db: str, output_folder: str) -> None:
     print("Creating speaker details table.")
     parquet_speaker_details(db, output_folder / "speaker_details.parquet")
 
+    print("Creating debate title table.")
+    parquet_debate(db, output_folder / "debate_title.parquet")
+
     print("Creating paragraph (text) table.")
     parquet_paragraph(db, output_folder / "paragraph.parquet")
 
@@ -143,6 +146,30 @@ def parquet_speaker_details(db_connection: sqlite3.Connection, destination: Path
             valid_to=pl.col("valid_to").str.to_date("%Y-%m-%d")
         )
         speaker_details.write_parquet(working_file, compression="zstd", compression_level=22)
+
+        shutil.move(working_file, destination)
+
+def parquet_debate(db_connection: sqlite3.Connection, destination: Path) -> None:
+    """Creates the table of debate titles."""
+
+    debate_query = """
+        SELECT *
+        from debate
+        where session_id in (
+            select session_id from session where date >= '1996-01-01'
+        )
+        """
+
+    sessions = pl.read_database(
+        debate_query,
+        db_connection,
+    )
+
+    with tempfile.TemporaryDirectory() as tempdir:
+
+        working_file = Path(tempdir, "debate.parquet")
+
+        sessions.write_parquet(working_file, compression="zstd", compression_level=22)
 
         shutil.move(working_file, destination)
 
