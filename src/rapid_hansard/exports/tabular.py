@@ -31,8 +31,8 @@ def export_parquet(parsed_db: str, output_folder: str) -> None:
     print("Creating session table.")
     parquet_session(db, output_folder / "session.parquet")
 
-    print("Creating speaker details table.")
-    parquet_speaker_details(db, output_folder / "speaker_details.parquet")
+    print("Creating speaker detail table.")
+    parquet_speaker_detail(db, output_folder / "speaker_detail.parquet")
 
     print("Creating debate title table.")
     parquet_debate(db, output_folder / "debate_title.parquet")
@@ -71,7 +71,7 @@ def parquet_session(db_connection: sqlite3.Connection, destination: Path) -> Non
         shutil.move(working_file, destination)
 
 
-def parquet_speaker_details(db_connection: sqlite3.Connection, destination: Path) -> None:
+def parquet_speaker_detail(db_connection: sqlite3.Connection, destination: Path) -> None:
     """
     Speaker information, as of the date they were speaking.
 
@@ -129,7 +129,7 @@ def parquet_speaker_details(db_connection: sqlite3.Connection, destination: Path
         """
     )
 
-    speaker_details = pl.read_database(
+    speaker_detail = pl.read_database(
         "SELECT * from speaker_asof",
         db_connection,
         schema_overrides={
@@ -139,13 +139,13 @@ def parquet_speaker_details(db_connection: sqlite3.Connection, destination: Path
 
     with tempfile.TemporaryDirectory() as tempdir:
 
-        working_file = Path(tempdir, "speaker_details.parquet")
+        working_file = Path(tempdir, "speaker_detail.parquet")
 
-        fixed_date = speaker_details.with_columns(
+        fixed_date = speaker_detail.with_columns(
             valid_from=pl.col("valid_from").str.to_date("%Y-%m-%d"),
             valid_to=pl.col("valid_to").str.to_date("%Y-%m-%d")
         )
-        speaker_details.write_parquet(working_file, compression="zstd", compression_level=22)
+        speaker_detail.write_parquet(working_file, compression="zstd", compression_level=22)
 
         shutil.move(working_file, destination)
 
@@ -178,7 +178,7 @@ def parquet_paragraph(db_connection: sqlite3.Connection, destination: Path) -> N
     """
     The paragraph tables contains one row per marked up paragraph in the source docs.
 
-    This requires that parquet_speaker_details has been run first to generate the
+    This requires that parquet_speaker_detail has been run first to generate the
     appropriate speaker_asof table to join against.
 
     """
