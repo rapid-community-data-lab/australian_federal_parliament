@@ -40,6 +40,11 @@ def export_parquet(parsed_db: str, output_folder: str) -> None:
     print("Creating paragraph (text) table.")
     parquet_paragraph(db, output_folder / "paragraph.parquet")
 
+    print("Populating README.")
+    src = Path("templates", "parquet_readme_template.md")
+    target = Path(output_folder, "README.md")
+    target.write_text(src.read_text())
+
 
 def parquet_session(db_connection: sqlite3.Connection, destination: Path) -> None:
     """Creates the table of legislative sessions (sittings)."""
