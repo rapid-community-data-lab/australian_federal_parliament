@@ -19,7 +19,9 @@ import xml.etree.ElementTree as ET
 import logging
 from pathlib import Path
 
+from ...metadata.chamber import CHAMBER_NAME_MAP
 from rapid_hansard import __version__ as rapid_hansard_version
+
 
 rapid_hansard_schema_version = "2026-03-04"
 
@@ -356,7 +358,7 @@ def insert_processed_xml_transcript_detail(
             url,
             transcript_pdf_url,
             session_info["date"],
-            session_info["chamber"],
+            CHAMBER_NAME_MAP[session_info["chamber"].lower()].name,
         ),
     )
 

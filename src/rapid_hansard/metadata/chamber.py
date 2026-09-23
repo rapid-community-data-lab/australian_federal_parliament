@@ -45,9 +45,9 @@ class Chamber:
         return {v: self for v in self.name_variants}
 
 
-SENATE = Chamber("Senate")
+SENATE = Chamber("Senate", {"SEN"})
 
-H_OF_REPS = Chamber("House of Representatives", {"House of Reps", "House", "House Hansard"})
+H_OF_REPS = Chamber("House", {"House of Reps", "REPS", "House of Representatives", "House Hansard"})
 
 
 def map_name_variations(chamber_1: Chamber, chamber_2: Chamber):
