@@ -16,8 +16,6 @@ pip install .[export_parquet]
 
 ```
 
-
-
 ## Usage
 
 To build a fresh full database of processed transcripts, execute the following (you can change the database 
@@ -40,3 +38,7 @@ WEBDRIVER_GECKO_DRIVER=/snap/bin/geckodriver rapid_hansard fetch transcripts tra
 
 Interface commands and options are documented in the help text, to view it run `rapid_hansard --help` or 
 e.g. `rapid_hansard parse --help`.
+
+## Dataset creation/update process
+
+See [datasets.md](datasets.md).
